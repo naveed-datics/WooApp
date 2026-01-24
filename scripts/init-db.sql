@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS products (
   reviewed_at TIMESTAMP,
   woo_product_id INTEGER,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(store_id, sku)
 );
 
 -- Product Variations table (from CSV)
@@ -103,17 +104,22 @@ CREATE TABLE IF NOT EXISTS product_variations (
   parent_sku VARCHAR(255),
   sku VARCHAR(255),
   attributes TEXT,
+  size VARCHAR(255),
+  color VARCHAR(255),
   price DECIMAL(10, 2),
   regular_price DECIMAL(10, 2),
   sale_price DECIMAL(10, 2),
   stock_quantity INTEGER,
   manage_stock BOOLEAN DEFAULT false,
   stock_status VARCHAR(50) DEFAULT 'instock',
+  tax_class VARCHAR(100),
   image VARCHAR(500),
+  images TEXT,
   status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'synced')),
   woo_variation_id INTEGER,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(product_id, sku)
 );
 
 -- Orders table

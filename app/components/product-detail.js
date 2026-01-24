@@ -241,9 +241,13 @@ export default function ProductDetail({ storeId, product, variations }) {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Color</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Attributes</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax class</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Images</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 </tr>
               </thead>
@@ -253,6 +257,12 @@ export default function ProductDetail({ storeId, product, variations }) {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {variation.sku || '-'}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {variation.size || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {variation.color || '-'}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {variation.attributes || '-'}
                     </td>
@@ -261,6 +271,16 @@ export default function ProductDetail({ storeId, product, variations }) {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {variation.stock_quantity !== null ? variation.stock_quantity : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {variation.tax_class || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {variation.images
+                        ? `${String(variation.images).split(',').filter(Boolean).length}`
+                        : variation.image
+                          ? '1'
+                          : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(variation.status)}

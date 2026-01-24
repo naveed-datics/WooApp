@@ -123,17 +123,36 @@ function parseProductRow(row) {
 }
 
 function parseVariationRow(row) {
+  // meta:attribute_Colour / meta:attribute_Size → metaattribute_colour / metaattribute_size after transformHeader
+  // (transformHeader: lowercase, replace spaces with _, remove non-alphanumeric except _)
+  // Also check for direct size and color columns
+  const sizeValue = row.metaattribute_size?.trim() || row.metaattributesize?.trim() || row.size?.trim() || row.attributesize?.trim() || null
+  const colorValue = row.metaattribute_colour?.trim() || row.metaattributecolour?.trim() || row.color?.trim() || row.attributecolour?.trim() || null
+  
+  const attrs = []
+  if (colorValue) {
+    attrs.push(`Colour: ${colorValue}`)
+  }
+  if (sizeValue) {
+    attrs.push(`Size: ${sizeValue}`)
+  }
+  const attributes = attrs.length > 0 ? attrs.join('; ') : (row.attributes?.trim() || null)
+
   return {
     parent_sku: row.parent_sku?.trim() || '',
     sku: row.sku?.trim() || '',
-    attributes: row.attributes?.trim() || null,
+    attributes: attributes || null,
+    size: sizeValue,
+    color: colorValue,
     price: row.price ? parseFloat(row.price) : null,
     regular_price: row.regular_price ? parseFloat(row.regular_price) : null,
     sale_price: row.sale_price ? parseFloat(row.sale_price) : null,
     stock_quantity: row.stock_quantity ? parseInt(row.stock_quantity) : null,
     manage_stock: row.manage_stock === 'true' || row.manage_stock === '1' || row.manage_stock === 'yes',
-    stock_status: row.stock_status?.toLowerCase() || 'instock',
+    stock_status: (row.stock_status?.toLowerCase() || 'instock').trim(),
+    tax_class: row.tax_class?.trim() || null,
     image: row.image?.trim() || null,
+    images: row.images?.trim() || row.image?.trim() || null,
   }
 }
 

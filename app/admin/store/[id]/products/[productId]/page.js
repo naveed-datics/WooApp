@@ -39,8 +39,8 @@ export default async function ProductDetailPage({ params }) {
 
   // Get variations
   const variationsResult = await db.query(
-    `SELECT id, sku, attributes, price, regular_price, sale_price, 
-            stock_quantity, stock_status, status
+    `SELECT id, sku, attributes, size, color, price, regular_price, sale_price, 
+            stock_quantity, stock_status, tax_class, image, images, status
      FROM product_variations
      WHERE product_id = $1
      ORDER BY created_at DESC`,

@@ -84,7 +84,7 @@ export async function POST(request) {
 
     try {
       if (fileType === 'products') {
-        // Validate and process products
+        // Validate and process products (upsert by store_id, sku)
         for (let i = 0; i < csvData.length; i++) {
           const row = csvData[i]
           const errors = validateProductRow(row, i)
@@ -95,36 +95,68 @@ export async function POST(request) {
           }
 
           const productData = parseProductRow(row)
-
-          await db.query(
-            `INSERT INTO products (
-              csv_upload_id, store_id, sku, name, description, short_description,
-              price, regular_price, sale_price, stock_quantity, manage_stock,
-              stock_status, categories, tags, images, attributes, status
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending')`,
-            [
-              csvUploadId,
-              storeId,
-              productData.sku,
-              productData.name,
-              productData.description,
-              productData.short_description,
-              productData.price,
-              productData.regular_price,
-              productData.sale_price,
-              productData.stock_quantity,
-              productData.manage_stock,
-              productData.stock_status,
-              productData.categories,
-              productData.tags,
-              productData.images,
-              productData.attributes,
-            ]
+          const existing = await db.query(
+            'SELECT id FROM products WHERE store_id = $1 AND sku = $2 LIMIT 1',
+            [storeId, productData.sku]
           )
+
+          if (existing.rows.length > 0) {
+            await db.query(
+              `UPDATE products SET
+                csv_upload_id = $1, name = $2, description = $3, short_description = $4,
+                price = $5, regular_price = $6, sale_price = $7, stock_quantity = $8,
+                manage_stock = $9, stock_status = $10, categories = $11, tags = $12,
+                images = $13, attributes = $14, updated_at = NOW()
+               WHERE id = $15`,
+              [
+                csvUploadId,
+                productData.name,
+                productData.description,
+                productData.short_description,
+                productData.price,
+                productData.regular_price,
+                productData.sale_price,
+                productData.stock_quantity,
+                productData.manage_stock,
+                productData.stock_status,
+                productData.categories,
+                productData.tags,
+                productData.images,
+                productData.attributes,
+                existing.rows[0].id,
+              ]
+            )
+          } else {
+            await db.query(
+              `INSERT INTO products (
+                csv_upload_id, store_id, sku, name, description, short_description,
+                price, regular_price, sale_price, stock_quantity, manage_stock,
+                stock_status, categories, tags, images, attributes, status
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending')`,
+              [
+                csvUploadId,
+                storeId,
+                productData.sku,
+                productData.name,
+                productData.description,
+                productData.short_description,
+                productData.price,
+                productData.regular_price,
+                productData.sale_price,
+                productData.stock_quantity,
+                productData.manage_stock,
+                productData.stock_status,
+                productData.categories,
+                productData.tags,
+                productData.images,
+                productData.attributes,
+              ]
+            )
+          }
           processedCount++
         }
       } else if (fileType === 'variations') {
-        // Validate and process variations
+        // Validate and process variations (upsert by product_id, sku)
         for (let i = 0; i < csvData.length; i++) {
           const row = csvData[i]
           const errors = validateVariationRow(row, i)
@@ -136,7 +168,6 @@ export async function POST(request) {
 
           const variationData = parseVariationRow(row)
 
-          // Find parent product by SKU
           const productResult = await db.query(
             'SELECT id FROM products WHERE store_id = $1 AND sku = $2 LIMIT 1',
             [storeId, variationData.parent_sku]
@@ -148,28 +179,67 @@ export async function POST(request) {
           }
 
           const productId = productResult.rows[0].id
-
-          await db.query(
-            `INSERT INTO product_variations (
-              product_id, csv_upload_id, parent_sku, sku, attributes,
-              price, regular_price, sale_price, stock_quantity, manage_stock,
-              stock_status, image, status
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending')`,
-            [
-              productId,
-              csvUploadId,
-              variationData.parent_sku,
-              variationData.sku,
-              variationData.attributes,
-              variationData.price,
-              variationData.regular_price,
-              variationData.sale_price,
-              variationData.stock_quantity,
-              variationData.manage_stock,
-              variationData.stock_status,
-              variationData.image,
-            ]
+          const existingVar = await db.query(
+            'SELECT id FROM product_variations WHERE product_id = $1 AND sku = $2 LIMIT 1',
+            [productId, variationData.sku]
           )
+
+          const imagesVal = variationData.images || variationData.image || null
+          const imageVal = variationData.image || (variationData.images ? String(variationData.images).split(',')[0]?.trim() : null) || null
+
+          if (existingVar.rows.length > 0) {
+            await db.query(
+              `UPDATE product_variations SET
+                csv_upload_id = $1, parent_sku = $2, attributes = $3, size = $4, color = $5, price = $6,
+                regular_price = $7, sale_price = $8, stock_quantity = $9,
+                manage_stock = $10, stock_status = $11, image = $12, tax_class = $13,
+                images = $14, updated_at = NOW()
+               WHERE id = $15`,
+              [
+                csvUploadId,
+                variationData.parent_sku,
+                variationData.attributes,
+                variationData.size,
+                variationData.color,
+                variationData.price,
+                variationData.regular_price,
+                variationData.sale_price,
+                variationData.stock_quantity,
+                variationData.manage_stock,
+                variationData.stock_status,
+                imageVal,
+                variationData.tax_class,
+                imagesVal,
+                existingVar.rows[0].id,
+              ]
+            )
+          } else {
+            await db.query(
+              `INSERT INTO product_variations (
+                product_id, csv_upload_id, parent_sku, sku, attributes, size, color,
+                price, regular_price, sale_price, stock_quantity, manage_stock,
+                stock_status, image, tax_class, images, status
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending')`,
+              [
+                productId,
+                csvUploadId,
+                variationData.parent_sku,
+                variationData.sku,
+                variationData.attributes,
+                variationData.size,
+                variationData.color,
+                variationData.price,
+                variationData.regular_price,
+                variationData.sale_price,
+                variationData.stock_quantity,
+                variationData.manage_stock,
+                variationData.stock_status,
+                imageVal,
+                variationData.tax_class,
+                imagesVal,
+              ]
+            )
+          }
           processedCount++
         }
       }

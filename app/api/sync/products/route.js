@@ -193,7 +193,7 @@ export async function POST(request) {
             let variationsResult = await db.query(
               `SELECT pv.id, pv.sku, pv.attributes, pv.price, pv.regular_price, pv.sale_price, 
                       pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
-                      pv.woo_variation_id, pv.status
+                      pv.tax_class, pv.images, pv.woo_variation_id, pv.status
                FROM product_variations pv
                INNER JOIN products p ON pv.product_id = p.id
                WHERE TRIM(pv.parent_sku) = TRIM($1)
@@ -210,7 +210,7 @@ export async function POST(request) {
               variationsResult = await db.query(
                 `SELECT pv.id, pv.sku, pv.attributes, pv.price, pv.regular_price, pv.sale_price, 
                         pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
-                        pv.woo_variation_id, pv.status
+                        pv.tax_class, pv.images, pv.woo_variation_id, pv.status
                  FROM product_variations pv
                  WHERE pv.product_id = $1 
                    AND pv.status = 'approved'
@@ -242,7 +242,7 @@ export async function POST(request) {
             const variationsResult = await db.query(
               `SELECT pv.id, pv.sku, pv.attributes, pv.price, pv.regular_price, pv.sale_price, 
                       pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
-                      pv.woo_variation_id, pv.status
+                      pv.tax_class, pv.images, pv.woo_variation_id, pv.status
                FROM product_variations pv
                WHERE pv.product_id = $1 
                  AND pv.status = 'approved'
@@ -420,9 +420,13 @@ export async function POST(request) {
                 wooVariationData.attributes = variationAttributes
               }
 
-              // Add image if provided
-              if (variation.image) {
-                wooVariationData.image = { src: variation.image }
+              if (variation.tax_class) {
+                wooVariationData.tax_class = variation.tax_class
+              }
+
+              const imgSrc = variation.image || (variation.images ? String(variation.images).split(',')[0]?.trim() : null)
+              if (imgSrc) {
+                wooVariationData.image = { src: imgSrc }
               }
 
               let wooVariation
