@@ -34,7 +34,7 @@ export async function POST(request) {
       )
     }
 
-    // Check if admin has access to this store
+    // Check if admin has access to this store asd
     if (session.user.role !== 'super_admin') {
       const accessCheck = await db.query(
         'SELECT id FROM admin_stores WHERE user_id = $1 AND store_id = $2',
