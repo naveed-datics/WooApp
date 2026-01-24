@@ -11,6 +11,7 @@ export default async function ProductsPage({ params, searchParams }) {
   const status = resolvedSearchParams?.status || 'pending'
   const page = parseInt(resolvedSearchParams?.page || '1')
   const limit = parseInt(resolvedSearchParams?.limit || '50')
+  const search = resolvedSearchParams?.search || ''
   const offset = (page - 1) * limit
 
   // Check if admin has access to this store
@@ -37,12 +38,33 @@ export default async function ProductsPage({ params, searchParams }) {
 
   const store = storeResult.rows[0]
 
-  // Get products based on status
-  const whereClause = status === 'all' 
-    ? 'WHERE store_id = $1' 
-    : 'WHERE store_id = $1 AND status = $2'
-
-  const queryParams = status === 'all' ? [storeId, limit, offset] : [storeId, status, limit, offset]
+  // Get products based on status and search
+  // Build WHERE clause and parameters dynamically
+  let whereParts = ['store_id = $1']
+  let queryParams = [storeId]
+  let paramIndex = 2
+  
+  if (status !== 'all') {
+    whereParts.push(`status = $${paramIndex}`)
+    queryParams.push(status)
+    paramIndex++
+  }
+  
+  if (search && search.trim()) {
+    whereParts.push(`(LOWER(name) LIKE LOWER($${paramIndex}) OR LOWER(sku) LIKE LOWER($${paramIndex}))`)
+    queryParams.push(`%${search.trim()}%`)
+    paramIndex++
+  }
+  
+  const whereClause = `WHERE ${whereParts.join(' AND ')}`
+  
+  // Add limit and offset
+  queryParams.push(limit)
+  const limitIndex = paramIndex
+  paramIndex++
+  
+  queryParams.push(offset)
+  const offsetIndex = paramIndex
 
   const productsResult = await db.query(
     `SELECT id, sku, name, price, regular_price, sale_price, stock_quantity, 
@@ -50,7 +72,7 @@ export default async function ProductsPage({ params, searchParams }) {
      FROM products 
      ${whereClause}
      ORDER BY created_at DESC
-     LIMIT $${status === 'all' ? '2' : '3'} OFFSET $${status === 'all' ? '3' : '4'}`,
+     LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
     queryParams
   )
 
@@ -61,9 +83,22 @@ export default async function ProductsPage({ params, searchParams }) {
   )
   const approvedProductsCount = parseInt(approvedCountResult.rows[0].count)
 
+  // Count query with same filters (reuse whereClause and build params)
+  const countParams = [storeId]
+  let countParamIndex = 2
+  
+  if (status !== 'all') {
+    countParams.push(status)
+    countParamIndex++
+  }
+  
+  if (search && search.trim()) {
+    countParams.push(`%${search.trim()}%`)
+  }
+  
   const countResult = await db.query(
     `SELECT COUNT(*) as total FROM products ${whereClause}`,
-    status === 'all' ? [storeId] : [storeId, status]
+    countParams
   )
 
   const total = parseInt(countResult.rows[0].total)
@@ -83,6 +118,7 @@ export default async function ProductsPage({ params, searchParams }) {
         totalPages={totalPages}
         total={total}
         limit={limit}
+        search={search}
         approvedProductsCount={approvedProductsCount}
       />
     </div>

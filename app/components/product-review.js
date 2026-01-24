@@ -4,21 +4,35 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
-export default function ProductReview({ storeId, products, status, currentPage, totalPages, total, limit = 50, approvedProductsCount = 0 }) {
+export default function ProductReview({ storeId, products, status, currentPage, totalPages, total, limit = 50, search = '', approvedProductsCount = 0 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [pageInput, setPageInput] = useState(currentPage.toString())
+  const [searchInput, setSearchInput] = useState(search)
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= totalPages) {
-      router.push(`/admin/store/${storeId}/products?status=${status}&page=${newPage}&limit=${limit}`)
+      const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
+      router.push(`/admin/store/${storeId}/products?status=${status}&page=${newPage}&limit=${limit}${searchParam}`)
     }
   }
 
   const handleLimitChange = (newLimit) => {
-    router.push(`/admin/store/${storeId}/products?status=${status}&page=1&limit=${newLimit}`)
+    const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
+    router.push(`/admin/store/${storeId}/products?status=${status}&page=1&limit=${newLimit}${searchParam}`)
+  }
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault()
+    const searchParam = searchInput.trim() ? `&search=${encodeURIComponent(searchInput.trim())}` : ''
+    router.push(`/admin/store/${storeId}/products?status=${status}&page=1&limit=${limit}${searchParam}`)
+  }
+
+  const handleSearchClear = () => {
+    setSearchInput('')
+    router.push(`/admin/store/${storeId}/products?status=${status}&page=1&limit=${limit}`)
   }
 
   const handlePageInputSubmit = (e) => {
@@ -219,7 +233,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
       <div className="mb-4 flex justify-between items-center">
         <div className="flex space-x-2">
           <Link
-            href={`/admin/store/${storeId}/products?status=all&limit=${limit}`}
+            href={`/admin/store/${storeId}/products?status=all&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
             className={`px-4 py-2 rounded-md text-sm font-medium ${
               status === 'all'
                 ? 'bg-indigo-100 text-indigo-700'
@@ -229,7 +243,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
             All ({total})
           </Link>
           <Link
-            href={`/admin/store/${storeId}/products?status=pending&limit=${limit}`}
+            href={`/admin/store/${storeId}/products?status=pending&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
             className={`px-4 py-2 rounded-md text-sm font-medium ${
               status === 'pending'
                 ? 'bg-indigo-100 text-indigo-700'
@@ -239,7 +253,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
             Pending
           </Link>
           <Link
-            href={`/admin/store/${storeId}/products?status=approved&limit=${limit}`}
+            href={`/admin/store/${storeId}/products?status=approved&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
             className={`px-4 py-2 rounded-md text-sm font-medium ${
               status === 'approved'
                 ? 'bg-indigo-100 text-indigo-700'
@@ -249,7 +263,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
             Approved
           </Link>
           <Link
-            href={`/admin/store/${storeId}/products?status=synced&limit=${limit}`}
+            href={`/admin/store/${storeId}/products?status=synced&limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ''}`}
             className={`px-4 py-2 rounded-md text-sm font-medium ${
               status === 'synced'
                 ? 'bg-indigo-100 text-indigo-700'
@@ -283,9 +297,38 @@ export default function ProductReview({ storeId, products, status, currentPage, 
         </div>
       )}
 
-      {/* Sync All Button - Above Table */}
-      {approvedProductsCount > 0 && (
-        <div className="mb-4 flex justify-end">
+      {/* Search Input - Above Table */}
+      <div className="mb-4 flex justify-between items-center gap-4">
+        <form onSubmit={handleSearchSubmit} className="flex-1 max-w-md">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by name or SKU..."
+              className="w-full px-4 py-2 pl-10 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            {searchInput && (
+              <button
+                type="button"
+                onClick={handleSearchClear}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </form>
+        
+        {/* Sync All Button */}
+        {approvedProductsCount > 0 && (
           <button
             onClick={handleSyncAll}
             disabled={loading === 'sync-all'}
@@ -293,6 +336,12 @@ export default function ProductReview({ storeId, products, status, currentPage, 
           >
             {loading === 'sync-all' ? 'Syncing...' : `Sync All (${approvedProductsCount} approved products)`}
           </button>
+        )}
+      </div>
+
+      {search && (
+        <div className="mb-4 text-sm text-gray-600">
+          Showing results for: <span className="font-medium">"{search}"</span>
         </div>
       )}
 

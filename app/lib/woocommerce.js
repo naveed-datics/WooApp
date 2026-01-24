@@ -13,7 +13,7 @@ class WooCommerceClient {
         username: consumerKey,
         password: consumerSecret,
       },
-      timeout: 30000,
+      timeout: 120000, // Increased to 120 seconds for large batch operations
     })
   }
 
@@ -56,6 +56,51 @@ class WooCommerceClient {
       return response.data
     } catch (error) {
       console.error('Error updating variation:', error.response?.data || error.message)
+      throw error
+    }
+  }
+
+  async batchVariations(productId, batchData) {
+    try {
+      // Use longer timeout for batch operations
+      const response = await this.client.post(
+        `products/${productId}/variations/batch`,
+        batchData,
+        { timeout: 120000 } // 120 seconds for large batches
+      )
+      return response.data
+    } catch (error) {
+      console.error('Error batch creating variations:', error.response?.data || error.message)
+      throw error
+    }
+  }
+
+  async getCategories(params = {}) {
+    try {
+      const response = await this.client.get('products/categories', { params })
+      return response.data
+    } catch (error) {
+      console.error('Error fetching categories:', error.response?.data || error.message)
+      throw error
+    }
+  }
+
+  async createCategory(categoryData) {
+    try {
+      const response = await this.client.post('products/categories', categoryData)
+      return response.data
+    } catch (error) {
+      console.error('Error creating category:', error.response?.data || error.message)
+      throw error
+    }
+  }
+
+  async getProduct(productId) {
+    try {
+      const response = await this.client.get(`products/${productId}`)
+      return response.data
+    } catch (error) {
+      console.error('Error fetching product:', error.response?.data || error.message)
       throw error
     }
   }

@@ -53,9 +53,18 @@ export async function POST(request, { params }) {
 
     const product = productResult.rows[0]
 
-    if (product.status !== 'approved') {
+    // Auto-approve pending products before publishing
+    if (product.status === 'pending') {
+      await db.query(
+        `UPDATE products SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [product.id]
+      )
+      product.status = 'approved'
+    }
+
+    if (product.status !== 'approved' && product.status !== 'synced') {
       return NextResponse.json(
-        { error: 'Only approved products can be synced' },
+        { error: 'Only approved or synced products can be published' },
         { status: 400 }
       )
     }
@@ -119,7 +128,7 @@ export async function POST(request, { params }) {
         // Now get only APPROVED variations for syncing
         if (hasVariations) {
           let variationsResult = await db.query(
-            `SELECT pv.id, pv.sku, pv.attributes, pv.price, pv.regular_price, pv.sale_price, 
+            `SELECT pv.id, pv.sku, pv.attributes, pv.size, pv.color, pv.price, pv.regular_price, pv.sale_price, 
                     pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
                     pv.tax_class, pv.images, pv.woo_variation_id, pv.status
              FROM product_variations pv
@@ -136,7 +145,7 @@ export async function POST(request, { params }) {
           // Fallback: If no approved variations found by parent_sku, try by product_id
           if (approvedVariations.length === 0) {
             variationsResult = await db.query(
-              `SELECT pv.id, pv.sku, pv.attributes, pv.price, pv.regular_price, pv.sale_price, 
+              `SELECT pv.id, pv.sku, pv.attributes, pv.size, pv.color, pv.price, pv.regular_price, pv.sale_price, 
                       pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
                       pv.tax_class, pv.images, pv.woo_variation_id, pv.status
                FROM product_variations pv
@@ -168,7 +177,7 @@ export async function POST(request, { params }) {
         
         if (hasVariations) {
           const variationsResult = await db.query(
-            `SELECT pv.id, pv.sku, pv.attributes, pv.price, pv.regular_price, pv.sale_price, 
+            `SELECT pv.id, pv.sku, pv.attributes, pv.size, pv.color, pv.price, pv.regular_price, pv.sale_price, 
                     pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
                     pv.tax_class, pv.images, pv.woo_variation_id, pv.status
              FROM product_variations pv
@@ -188,33 +197,60 @@ export async function POST(request, { params }) {
       // Use approved variations for syncing, but use hasVariations for product type
       const variations = approvedVariations
 
-      // Helper function to parse attributes from variations
-      const parseAttributesFromVariations = (variations) => {
+      // Helper function to extract attributes from variations (using size/color columns + attributes text)
+      const extractAttributesFromVariations = (variations) => {
         const attributeMap = new Map()
         
         for (const variation of variations) {
-          if (!variation.attributes) continue
-          
-          // Parse attributes - format: "Colour: Red; Size: Large" or "Colour=Red;Size=Large"
-          const attrPairs = variation.attributes.split(';').map(a => a.trim()).filter(Boolean)
-          
-          for (const pair of attrPairs) {
-            let attrName, attrValue
-            
-            if (pair.includes(':')) {
-              [attrName, attrValue] = pair.split(':').map(s => s.trim())
-            } else if (pair.includes('=')) {
-              [attrName, attrValue] = pair.split('=').map(s => s.trim())
-            } else {
-              continue
-            }
-            
-            if (!attrName || !attrValue) continue
-            
+          // Extract from size column
+          if (variation.size && variation.size.trim()) {
+            const attrName = 'Size'
             if (!attributeMap.has(attrName)) {
               attributeMap.set(attrName, new Set())
             }
-            attributeMap.get(attrName).add(attrValue)
+            attributeMap.get(attrName).add(variation.size.trim())
+          }
+          
+          // Extract from color column
+          if (variation.color && variation.color.trim()) {
+            const attrName = 'Color'
+            if (!attributeMap.has(attrName)) {
+              attributeMap.set(attrName, new Set())
+            }
+            attributeMap.get(attrName).add(variation.color.trim())
+          }
+          
+          // Also parse from attributes text field (fallback)
+          if (variation.attributes) {
+            // Parse attributes - format: "Colour: Red; Size: Large" or "Colour=Red;Size=Large"
+            const attrPairs = variation.attributes.split(';').map(a => a.trim()).filter(Boolean)
+            
+            for (const pair of attrPairs) {
+              let attrName, attrValue
+              
+              if (pair.includes(':')) {
+                [attrName, attrValue] = pair.split(':').map(s => s.trim())
+              } else if (pair.includes('=')) {
+                [attrName, attrValue] = pair.split('=').map(s => s.trim())
+              } else {
+                continue
+              }
+              
+              if (!attrName || !attrValue) continue
+              
+              // Normalize attribute names (Color/Colour -> Color)
+              if (attrName.toLowerCase() === 'colour') {
+                attrName = 'Color'
+              }
+              if (attrName.toLowerCase() === 'size') {
+                attrName = 'Size'
+              }
+              
+              if (!attributeMap.has(attrName)) {
+                attributeMap.set(attrName, new Set())
+              }
+              attributeMap.get(attrName).add(attrValue)
+            }
           }
         }
         
@@ -227,14 +263,68 @@ export async function POST(request, { params }) {
             position: wooAttributes.length,
             visible: true,
             variation: true,
-            options: Array.from(values),
+            options: Array.from(values).sort(), // Sort options for consistency
           })
         }
         
         return wooAttributes
       }
 
-      // Convert to WooCommerce format
+      // ✅ STEP 0: Create categories if provided (before creating product)
+      const categoryIds = []
+      if (product.categories) {
+        const categoryNames = product.categories.split(',').map(cat => cat.trim()).filter(Boolean)
+        if (categoryNames.length > 0) {
+          console.log(`✅ STEP 0: Processing ${categoryNames.length} categories`)
+          
+          // Get existing categories from WooCommerce (fetch all pages if needed)
+          let existingCategories = []
+          let page = 1
+          let hasMore = true
+          
+          while (hasMore) {
+            const response = await wooClient.getCategories({ per_page: 100, page })
+            existingCategories = existingCategories.concat(response)
+            hasMore = response.length === 100
+            page++
+          }
+          
+          const existingCategoryMap = new Map()
+          existingCategories.forEach(cat => {
+            existingCategoryMap.set(cat.name.toLowerCase(), cat.id)
+          })
+          
+          console.log(`  Found ${existingCategories.length} existing categories in WooCommerce`)
+          
+          // Process unique category names
+          const uniqueCategoryNames = [...new Set(categoryNames)]
+          console.log(`  Found ${uniqueCategoryNames.length} unique category names`)
+          
+          for (const categoryName of uniqueCategoryNames) {
+            const categoryNameLower = categoryName.toLowerCase()
+            
+            // Check if category already exists
+            if (existingCategoryMap.has(categoryNameLower)) {
+              const existingId = existingCategoryMap.get(categoryNameLower)
+              categoryIds.push(existingId)
+              console.log(`  ✓ Category "${categoryName}" already exists (ID: ${existingId})`)
+            } else {
+              // Create new category
+              try {
+                const newCategory = await wooClient.createCategory({ name: categoryName })
+                categoryIds.push(newCategory.id)
+                existingCategoryMap.set(categoryNameLower, newCategory.id)
+                console.log(`  ✓ Created category "${categoryName}" (ID: ${newCategory.id})`)
+              } catch (catError) {
+                console.error(`  ✗ Failed to create category "${categoryName}":`, catError.message)
+                // Continue with other categories even if one fails
+              }
+            }
+          }
+        }
+      }
+
+      // ✅ STEP 1: Create/Update Variable Product (Parent) - WITHOUT attributes initially
       const wooProductData = {
         name: product.name,
         type: hasVariations ? 'variable' : 'simple',
@@ -244,8 +334,7 @@ export async function POST(request, { params }) {
         status: 'publish',
       }
       
-      // Debug: Log product type decision
-      console.log(`Creating ${wooProductData.type} product for ${product.name} (SKU: ${product.sku})`)
+      console.log(`✅ STEP 1: Creating ${wooProductData.type} product for ${product.name} (SKU: ${product.sku})`)
 
       // For simple products, add pricing and stock
       if (!hasVariations) {
@@ -259,50 +348,12 @@ export async function POST(request, { params }) {
         if (!wooProductData.sale_price) {
           delete wooProductData.sale_price
         }
-      } else {
-        // For variable products: Step 1 - Add attributes (no pricing/stock on parent)
-        // Get ALL variations (not just approved) to extract attributes
-        let allVariationsForAttributes = []
-        if (product.sku) {
-          let attrResult = await db.query(
-            `SELECT pv.attributes
-             FROM product_variations pv
-             INNER JOIN products p ON pv.product_id = p.id
-             WHERE TRIM(pv.parent_sku) = TRIM($1) AND p.store_id = $2
-             UNION
-             SELECT pv.attributes
-             FROM product_variations pv
-             WHERE pv.product_id = $3`,
-            [product.sku, store_id, productId]
-          )
-          allVariationsForAttributes = attrResult.rows
-        } else {
-          let attrResult = await db.query(
-            `SELECT pv.attributes
-             FROM product_variations pv
-             WHERE pv.product_id = $1`,
-            [productId]
-          )
-          allVariationsForAttributes = attrResult.rows
-        }
-        
-        const wooAttributes = parseAttributesFromVariations(allVariationsForAttributes)
-        if (wooAttributes.length > 0) {
-          wooProductData.attributes = wooAttributes
-          console.log(`Added ${wooAttributes.length} attributes to variable product`)
-        } else {
-          console.warn(`Variable product ${product.name} has no attributes extracted from variations`)
-          console.warn(`All variations:`, allVariationsForAttributes)
-        }
-        // Variable products don't have pricing/stock on parent - only on variations
       }
+      // Note: For variable products, we DON'T add attributes here - that's STEP 2
 
-      // Parse categories if provided
-      if (product.categories) {
-        const categoryNames = product.categories.split(',').map(cat => cat.trim()).filter(Boolean)
-        if (categoryNames.length > 0) {
-          wooProductData.categories = categoryNames.map(name => ({ name }))
-        }
+      // Add categories using IDs (more reliable than names)
+      if (categoryIds.length > 0) {
+        wooProductData.categories = categoryIds.map(id => ({ id }))
       }
 
       // Parse tags if provided
@@ -323,9 +374,20 @@ export async function POST(request, { params }) {
 
       let wooProduct
 
-      // Update existing or create new
+      // Create or update product (STEP 1)
       if (product.woo_product_id) {
-        wooProduct = await wooClient.updateProduct(product.woo_product_id, wooProductData)
+        try {
+          wooProduct = await wooClient.updateProduct(product.woo_product_id, wooProductData)
+        } catch (updateError) {
+          // If update fails (e.g., invalid ID), create a new product instead
+          console.log(`Update failed for product ID ${product.woo_product_id}, creating new product instead`)
+          wooProduct = await wooClient.createProduct(wooProductData)
+          // Clear the invalid woo_product_id from database
+          await db.query(
+            `UPDATE products SET woo_product_id = NULL WHERE id = $1`,
+            [product.id]
+          )
+        }
       } else {
         wooProduct = await wooClient.createProduct(wooProductData)
       }
@@ -338,14 +400,102 @@ export async function POST(request, { params }) {
         [wooProduct.id, product.id]
       )
 
-      // Step 2: Sync variations if product has them (after parent is created)
+      // ✅ STEP 2: Add Attributes to Variable Product (if it has variations)
+      if (hasVariations && variations.length > 0) {
+        console.log(`✅ STEP 2: Adding attributes to variable product ${wooProduct.id}`)
+        
+        // Get ALL variations (not just approved) to extract all possible attribute values
+        let allVariationsForAttributes = []
+        if (product.sku) {
+          let attrResult = await db.query(
+            `SELECT pv.attributes, pv.size, pv.color
+             FROM product_variations pv
+             INNER JOIN products p ON pv.product_id = p.id
+             WHERE TRIM(pv.parent_sku) = TRIM($1) AND p.store_id = $2
+             UNION
+             SELECT pv.attributes, pv.size, pv.color
+             FROM product_variations pv
+             WHERE pv.product_id = $3`,
+            [product.sku, store_id, productId]
+          )
+          allVariationsForAttributes = attrResult.rows
+        } else {
+          let attrResult = await db.query(
+            `SELECT pv.attributes, pv.size, pv.color
+             FROM product_variations pv
+             WHERE pv.product_id = $1`,
+            [productId]
+          )
+          allVariationsForAttributes = attrResult.rows
+        }
+        
+        const wooAttributes = extractAttributesFromVariations(allVariationsForAttributes)
+        
+        if (wooAttributes.length > 0) {
+          // Update product with attributes
+          const attributesUpdate = {
+            attributes: wooAttributes
+          }
+          
+          wooProduct = await wooClient.updateProduct(wooProduct.id, attributesUpdate)
+          console.log(`✓ Added ${wooAttributes.length} attributes: ${wooAttributes.map(a => a.name).join(', ')}`)
+        } else {
+          console.warn(`⚠ Variable product ${product.name} has no attributes extracted from variations`)
+        }
+      }
+
+      // ✅ STEP 3: Create Variations using Batch Endpoint
       const syncedVariations = []
-      if (hasVariations && wooProduct.id) {
-        for (const variation of variations) {
+      if (hasVariations && wooProduct.id && variations.length > 0) {
+        console.log(`✅ STEP 3: Creating ${variations.length} variations using batch endpoint`)
+        
+        // Get fresh product data with attributes (needed for attribute IDs)
+        const freshProduct = await wooClient.getProduct(wooProduct.id)
+        
+        // Prepare batch variations payload
+        const batchVariations = {
+          create: []
+        }
+        
+        // Track which variations are being batch created (for mapping results back)
+        const batchVariationMap = new Map() // index -> variation database id
+        
+        for (let i = 0; i < variations.length; i++) {
+          const variation = variations[i]
           try {
-            // Parse variation attributes to WooCommerce format
+            // Build variation attributes from size/color columns + attributes text
             const variationAttributes = []
-            if (variation.attributes) {
+            
+            // Add Size attribute if present
+            if (variation.size && variation.size.trim()) {
+              const sizeAttr = freshProduct.attributes?.find(a => 
+                a.name === 'Size' || a.name === 'size'
+              )
+              if (sizeAttr) {
+                variationAttributes.push({
+                  id: sizeAttr.id,
+                  name: sizeAttr.name,
+                  option: variation.size.trim(),
+                })
+              }
+            }
+            
+            // Add Color attribute if present
+            if (variation.color && variation.color.trim()) {
+              const colorAttr = freshProduct.attributes?.find(a => 
+                a.name === 'Color' || a.name === 'Colour' || a.name === 'color' || a.name === 'colour'
+              )
+              if (colorAttr) {
+                variationAttributes.push({
+                  id: colorAttr.id,
+                  name: colorAttr.name,
+                  option: variation.color.trim(),
+                })
+              }
+            }
+            
+            // Also parse from attributes text field (fallback)
+            if (variation.attributes && variationAttributes.length === 0) {
               const attrPairs = variation.attributes.split(';').map(a => a.trim()).filter(Boolean)
               for (const pair of attrPairs) {
                 let attrName, attrValue
@@ -359,12 +509,16 @@ export async function POST(request, { params }) {
                 }
                 
                 if (attrName && attrValue) {
-                  // Find attribute ID from parent product
-                  const parentAttr = wooProduct.attributes?.find(a => a.name === attrName)
+                  // Normalize attribute names
+                  if (attrName.toLowerCase() === 'colour') attrName = 'Color'
+                  
+                  const parentAttr = freshProduct.attributes?.find(a => 
+                    a.name === attrName || a.name.toLowerCase() === attrName.toLowerCase()
+                  )
                   if (parentAttr) {
                     variationAttributes.push({
                       id: parentAttr.id,
-                      name: attrName,
+                      name: parentAttr.name,
                       option: attrValue,
                     })
                   }
@@ -387,9 +541,12 @@ export async function POST(request, { params }) {
               delete wooVariationData.sale_price
             }
 
-            // Add attributes
+            // Add attributes (required for variations)
             if (variationAttributes.length > 0) {
               wooVariationData.attributes = variationAttributes
+            } else {
+              console.warn(`⚠ Variation ${variation.sku} has no attributes - skipping`)
+              continue
             }
 
             if (variation.tax_class) {
@@ -401,33 +558,99 @@ export async function POST(request, { params }) {
               wooVariationData.image = { src: imgSrc }
             }
 
-            let wooVariation
-
-            // Update existing or create new variation
-            if (variation.woo_variation_id) {
-              wooVariation = await wooClient.updateVariation(
-                wooProduct.id,
-                variation.woo_variation_id,
-                wooVariationData
-              )
+            // Add to batch (only for new variations)
+            if (!variation.woo_variation_id) {
+              const batchIndex = batchVariations.create.length
+              batchVariations.create.push(wooVariationData)
+              batchVariationMap.set(batchIndex, variation.id) // Map batch index to database variation id
             } else {
-              wooVariation = await wooClient.createVariation(wooProduct.id, wooVariationData)
+              // Update existing variations individually
+              try {
+                const wooVariation = await wooClient.updateVariation(
+                  wooProduct.id,
+                  variation.woo_variation_id,
+                  wooVariationData
+                )
+                
+                await db.query(
+                  `UPDATE product_variations 
+                   SET woo_variation_id = $1, status = 'synced', updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [wooVariation.id, variation.id]
+                )
+                
+                syncedVariations.push(wooVariation.id)
+              } catch (updateError) {
+                // If update fails (e.g., invalid ID), create a new variation instead
+                console.log(`Update failed for variation ID ${variation.woo_variation_id}, creating new variation instead`)
+                const batchIndex = batchVariations.create.length
+                batchVariations.create.push(wooVariationData)
+                batchVariationMap.set(batchIndex, variation.id)
+                // Clear the invalid woo_variation_id from database
+                await db.query(
+                  `UPDATE product_variations SET woo_variation_id = NULL WHERE id = $1`,
+                  [variation.id]
+                )
+              }
             }
-
-            // Update variation in database
-            await db.query(
-              `UPDATE product_variations 
-               SET woo_variation_id = $1, status = 'synced', updated_at = CURRENT_TIMESTAMP
-               WHERE id = $2`,
-              [wooVariation.id, variation.id]
-            )
-
-            syncedVariations.push(wooVariation.id)
           } catch (variationError) {
             const errorMsg = variationError.response?.data?.message || variationError.message || 'Unknown error'
-            console.error(`Error syncing variation ${variation.id}:`, errorMsg)
+            console.error(`Error preparing variation ${variation.id}:`, errorMsg)
             // Continue with other variations even if one fails
           }
+        }
+        
+        // Execute batch create if there are new variations
+        // Split into smaller chunks to avoid timeout (20 variations per batch)
+        if (batchVariations.create.length > 0) {
+          const BATCH_SIZE = 20
+          const totalBatches = Math.ceil(batchVariations.create.length / BATCH_SIZE)
+          console.log(`Creating ${batchVariations.create.length} variations in ${totalBatches} batch(es) of ${BATCH_SIZE}...`)
+          
+          let globalIndex = 0
+          
+          for (let batchNum = 0; batchNum < totalBatches; batchNum++) {
+            const startIdx = batchNum * BATCH_SIZE
+            const endIdx = Math.min(startIdx + BATCH_SIZE, batchVariations.create.length)
+            const chunk = batchVariations.create.slice(startIdx, endIdx)
+            
+            console.log(`  Processing batch ${batchNum + 1}/${totalBatches} (variations ${startIdx + 1}-${endIdx})...`)
+            
+            try {
+              const chunkBatchData = { create: chunk }
+              const batchResult = await wooClient.batchVariations(wooProduct.id, chunkBatchData)
+              
+              // Update database with created variation IDs
+              if (batchResult.create && batchResult.create.length > 0) {
+                for (let i = 0; i < batchResult.create.length; i++) {
+                  const createdVariation = batchResult.create[i]
+                  const actualIndex = startIdx + i
+                  const variationDbId = batchVariationMap.get(actualIndex)
+                  
+                  if (createdVariation && createdVariation.id && variationDbId) {
+                    await db.query(
+                      `UPDATE product_variations 
+                       SET woo_variation_id = $1, status = 'synced', updated_at = CURRENT_TIMESTAMP
+                       WHERE id = $2`,
+                      [createdVariation.id, variationDbId]
+                    )
+                    syncedVariations.push(createdVariation.id)
+                  } else if (createdVariation && createdVariation.error) {
+                    console.error(`Error creating variation at index ${actualIndex}:`, createdVariation.error)
+                  }
+                }
+              }
+              
+              console.log(`  ✓ Batch ${batchNum + 1} completed: ${batchResult.create?.length || 0} variations created`)
+            } catch (batchError) {
+              const errorMsg = batchError.response?.data?.message || batchError.message || 'Unknown error'
+              console.error(`  ✗ Error in batch ${batchNum + 1}:`, errorMsg)
+              // Continue with next batch instead of failing completely
+              // throw batchError
+            }
+          }
+          
+          console.log(`✓ Completed all batches: ${syncedVariations.length} variations synced successfully`)
         }
       }
 

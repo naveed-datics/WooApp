@@ -87,6 +87,35 @@ export default function ProductDetail({ storeId, product, variations }) {
     }
   }
 
+  const handlePublish = async () => {
+    if (!confirm('Are you sure you want to publish this product to WooCommerce?')) {
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch(`/api/sync/product/${product.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store_id: storeId }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to publish product to WooCommerce')
+      }
+
+      const result = await response.json()
+      alert(result.message || 'Product published successfully!')
+      router.refresh()
+    } catch (err) {
+      setError(err.message)
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="bg-white shadow rounded-lg p-6">
       {error && (
@@ -123,6 +152,15 @@ export default function ProductDetail({ storeId, product, variations }) {
                     Reject
                   </button>
                 </>
+              )}
+              {product.status !== 'rejected' && (
+                <button
+                  onClick={handlePublish}
+                  disabled={loading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? 'Publishing...' : 'Publish'}
+                </button>
               )}
             </>
           ) : (
