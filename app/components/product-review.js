@@ -1,0 +1,515 @@
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+
+export default function ProductReview({ storeId, products, status, currentPage, totalPages, total, limit = 50, approvedProductsCount = 0 }) {
+  const router = useRouter()
+  const [loading, setLoading] = useState(null)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [pageInput, setPageInput] = useState(currentPage.toString())
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      router.push(`/admin/store/${storeId}/products?status=${status}&page=${newPage}&limit=${limit}`)
+    }
+  }
+
+  const handleLimitChange = (newLimit) => {
+    router.push(`/admin/store/${storeId}/products?status=${status}&page=1&limit=${newLimit}`)
+  }
+
+  const handlePageInputSubmit = (e) => {
+    e.preventDefault()
+    const pageNum = parseInt(pageInput)
+    if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+      handlePageChange(pageNum)
+    } else {
+      setPageInput(currentPage.toString())
+    }
+  }
+
+  // Calculate visible page range
+  const getVisiblePages = () => {
+    const delta = 2 // Show 2 pages on each side of current
+    const range = []
+    const rangeWithDots = []
+
+    for (let i = Math.max(2, currentPage - delta); 
+         i <= Math.min(totalPages - 1, currentPage + delta); 
+         i++) {
+      range.push(i)
+    }
+
+    if (currentPage - delta > 2) {
+      rangeWithDots.push(1, '...')
+    } else {
+      rangeWithDots.push(1)
+    }
+
+    rangeWithDots.push(...range)
+
+    if (currentPage + delta < totalPages - 1) {
+      rangeWithDots.push('...', totalPages)
+    } else if (totalPages > 1) {
+      rangeWithDots.push(totalPages)
+    }
+
+    return rangeWithDots
+  }
+
+  const startItem = total === 0 ? 0 : (currentPage - 1) * limit + 1
+  const endItem = Math.min(currentPage * limit, total)
+
+  const getStatusBadge = (productStatus) => {
+    const colors = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      approved: 'bg-green-100 text-green-800',
+      rejected: 'bg-red-100 text-red-800',
+      synced: 'bg-blue-100 text-blue-800',
+    }
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[productStatus] || colors.pending}`}>
+        {productStatus}
+      </span>
+    )
+  }
+
+  const handleStatusChange = async (productId, newStatus) => {
+    setLoading(productId)
+    setError('')
+
+    try {
+      const response = await fetch(`/api/products/${productId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to update product status')
+      }
+
+      router.refresh()
+    } catch (err) {
+      setError(err.message)
+      setLoading(null)
+    }
+  }
+
+  const handleBulkAction = async (action) => {
+    const selectedProducts = products.filter((p) => p.status === 'pending')
+    
+    if (selectedProducts.length === 0) {
+      alert('No pending products to update')
+      return
+    }
+
+    if (!confirm(`Are you sure you want to ${action} ${selectedProducts.length} products?`)) {
+      return
+    }
+
+    setLoading('bulk')
+    setError('')
+    setSuccess('')
+
+    try {
+      const response = await fetch('/api/products/bulk-status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productIds: selectedProducts.map((p) => p.id),
+          status: action === 'approve' ? 'approved' : 'rejected',
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to update products')
+      }
+
+      router.refresh()
+    } catch (err) {
+      setError(err.message)
+      setLoading(null)
+    }
+  }
+
+  const handleSyncAll = async () => {
+    if (approvedProductsCount === 0) {
+      alert('No approved products to sync')
+      return
+    }
+
+    if (!confirm(`Are you sure you want to sync ${approvedProductsCount} approved products to WooCommerce? This may take a while.`)) {
+      return
+    }
+
+    setLoading('sync-all')
+    setError('')
+    setSuccess('')
+
+    try {
+      const response = await fetch('/api/sync/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          store_id: storeId,
+          sync_type: 'products',
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to sync products')
+      }
+
+      setSuccess(`Sync completed! ${data.succeeded} succeeded, ${data.failed} failed.`)
+      setLoading(null)
+      
+      // Refresh page after a delay to show updated statuses
+      setTimeout(() => {
+        router.refresh()
+      }, 2000)
+    } catch (err) {
+      setError(err.message)
+      setLoading(null)
+    }
+  }
+
+  const handleSyncProduct = async (productId) => {
+    setLoading(productId)
+    setError('')
+    setSuccess('')
+
+    try {
+      const response = await fetch(`/api/sync/product/${productId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          store_id: storeId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to sync product')
+      }
+
+      setSuccess('Product synced successfully!')
+      setLoading(null)
+      
+      // Refresh page after a delay to show updated status
+      setTimeout(() => {
+        router.refresh()
+      }, 1000)
+    } catch (err) {
+      setError(err.message)
+      setLoading(null)
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-4 flex justify-between items-center">
+        <div className="flex space-x-2">
+          <Link
+            href={`/admin/store/${storeId}/products?status=all&limit=${limit}`}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              status === 'all'
+                ? 'bg-indigo-100 text-indigo-700'
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            All ({total})
+          </Link>
+          <Link
+            href={`/admin/store/${storeId}/products?status=pending&limit=${limit}`}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              status === 'pending'
+                ? 'bg-indigo-100 text-indigo-700'
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            Pending
+          </Link>
+          <Link
+            href={`/admin/store/${storeId}/products?status=approved&limit=${limit}`}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              status === 'approved'
+                ? 'bg-indigo-100 text-indigo-700'
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            Approved
+          </Link>
+          <Link
+            href={`/admin/store/${storeId}/products?status=synced&limit=${limit}`}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              status === 'synced'
+                ? 'bg-indigo-100 text-indigo-700'
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            Synced
+          </Link>
+        </div>
+        {status === 'pending' && (
+          <div className="flex space-x-2">
+            <button
+              onClick={() => handleBulkAction('approve')}
+              disabled={loading === 'bulk'}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+            >
+              {loading === 'bulk' ? 'Processing...' : 'Approve All Pending'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="bg-green-50 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+          {success}
+        </div>
+      )}
+
+      {/* Sync All Button - Above Table */}
+      {approvedProductsCount > 0 && (
+        <div className="mb-4 flex justify-end">
+          <button
+            onClick={handleSyncAll}
+            disabled={loading === 'sync-all'}
+            className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          >
+            {loading === 'sync-all' ? 'Syncing...' : `Sync All (${approvedProductsCount} approved products)`}
+          </button>
+        </div>
+      )}
+
+      <div className="bg-white shadow rounded-lg overflow-hidden">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                SKU
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Name
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Price
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Stock
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {products.length === 0 ? (
+              <tr>
+                <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
+                  No products found.
+                </td>
+              </tr>
+            ) : (
+              products.map((product) => (
+                <tr key={product.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {product.sku || '-'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    <Link
+                      href={`/admin/store/${storeId}/products/${product.id}`}
+                      className="text-indigo-600 hover:text-indigo-800"
+                    >
+                      {product.name}
+                    </Link>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {product.sale_price 
+                      ? `$${product.sale_price} (was $${product.regular_price || product.price})`
+                      : `$${product.price || product.regular_price || '0.00'}`
+                    }
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {product.stock_quantity !== null ? product.stock_quantity : '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {getStatusBadge(product.status)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <div className="flex items-center gap-2">
+                      {product.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleStatusChange(product.id, 'approved')}
+                            disabled={loading === product.id}
+                            className="text-green-600 hover:text-green-900 disabled:opacity-50"
+                          >
+                            {loading === product.id ? 'Processing...' : 'Approve'}
+                          </button>
+                          <button
+                            onClick={() => handleStatusChange(product.id, 'rejected')}
+                            disabled={loading === product.id}
+                            className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                          >
+                            {loading === product.id ? 'Processing...' : 'Reject'}
+                          </button>
+                        </>
+                      )}
+                      {product.status === 'approved' && (
+                        <button
+                          onClick={() => handleSyncProduct(product.id)}
+                          disabled={loading === product.id}
+                          className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
+                        >
+                          {loading === product.id ? 'Syncing...' : 'Sync with Store'}
+                        </button>
+                      )}
+                      {product.status === 'synced' && (
+                        <span className="text-gray-500 text-xs">
+                          Synced {product.woo_product_id ? `(ID: ${product.woo_product_id})` : ''}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination Info and Controls */}
+      <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-gray-700">
+            Showing <span className="font-medium">{startItem}</span> to <span className="font-medium">{endItem}</span> of{' '}
+            <span className="font-medium">{total}</span> products
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="limit-select" className="text-sm text-gray-700">
+              Per page:
+            </label>
+            <select
+              id="limit-select"
+              value={limit}
+              onChange={(e) => handleLimitChange(parseInt(e.target.value))}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </select>
+          </div>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            {/* First Page */}
+            <button
+              onClick={() => handlePageChange(1)}
+              disabled={currentPage === 1}
+              className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              First
+            </button>
+
+            {/* Previous Page */}
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+
+            {/* Page Numbers */}
+            <div className="flex items-center gap-1">
+              {getVisiblePages().map((page, index) => {
+                if (page === '...') {
+                  return (
+                    <span key={`ellipsis-${index}`} className="px-2 py-1 text-gray-500">
+                      ...
+                    </span>
+                  )
+                }
+                return (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page)}
+                    className={`px-3 py-1 text-sm font-medium rounded-md ${
+                      page === currentPage
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Next Page */}
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+
+            {/* Last Page */}
+            <button
+              onClick={() => handlePageChange(totalPages)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Last
+            </button>
+
+            {/* Page Input */}
+            <form onSubmit={handlePageInputSubmit} className="flex items-center gap-2 ml-2">
+              <span className="text-sm text-gray-700">Go to:</span>
+              <input
+                type="number"
+                min="1"
+                max={totalPages}
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value)}
+                className="w-16 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1 text-sm font-medium text-indigo-600 bg-white border border-indigo-300 rounded-md hover:bg-indigo-50"
+              >
+                Go
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+
+
