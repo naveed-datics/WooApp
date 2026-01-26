@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import db from '../../../../lib/db'
-import { auth } from '../../../auth/[...nextauth]/route'
+import db from '../../../../../lib/db'
+import { auth } from '../../../../auth/[...nextauth]/route'
 
 export const maxDuration = 10
 export const runtime = 'nodejs'
