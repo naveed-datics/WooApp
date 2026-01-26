@@ -11,6 +11,8 @@ export default function ProductReview({ storeId, products, status, currentPage, 
   const [success, setSuccess] = useState('')
   const [pageInput, setPageInput] = useState(currentPage.toString())
   const [searchInput, setSearchInput] = useState(search)
+  const [expandedProducts, setExpandedProducts] = useState(new Set())
+  const [variantsData, setVariantsData] = useState({})
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= totalPages) {
@@ -228,6 +230,34 @@ export default function ProductReview({ storeId, products, status, currentPage, 
     }
   }
 
+  const toggleVariants = async (productId) => {
+    const newExpanded = new Set(expandedProducts)
+    
+    if (newExpanded.has(productId)) {
+      // Collapse
+      newExpanded.delete(productId)
+    } else {
+      // Expand - fetch variants if not already loaded
+      newExpanded.add(productId)
+      if (!variantsData[productId]) {
+        try {
+          const response = await fetch(`/api/products/${productId}/variations`)
+          if (response.ok) {
+            const data = await response.json()
+            setVariantsData(prev => ({
+              ...prev,
+              [productId]: data.variations || []
+            }))
+          }
+        } catch (err) {
+          console.error('Error fetching variants:', err)
+        }
+      }
+    }
+    
+    setExpandedProducts(newExpanded)
+  }
+
   return (
     <div>
       <div className="mb-4 flex justify-between items-center">
@@ -362,6 +392,9 @@ export default function ProductReview({ storeId, products, status, currentPage, 
                 Stock
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Variants
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -372,74 +405,149 @@ export default function ProductReview({ storeId, products, status, currentPage, 
           <tbody className="bg-white divide-y divide-gray-200">
             {products.length === 0 ? (
               <tr>
-                <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
+                <td colSpan="7" className="px-6 py-4 text-center text-gray-500">
                   No products found.
                 </td>
               </tr>
             ) : (
-              products.map((product) => (
-                <tr key={product.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {product.sku || '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    <Link
-                      href={`/admin/store/${storeId}/products/${product.id}`}
-                      className="text-indigo-600 hover:text-indigo-800"
-                    >
-                      {product.name}
-                    </Link>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {product.sale_price 
-                      ? `$${product.sale_price} (was $${product.regular_price || product.price})`
-                      : `$${product.price || product.regular_price || '0.00'}`
-                    }
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {product.stock_quantity !== null ? product.stock_quantity : '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {getStatusBadge(product.status)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex items-center gap-2">
-                      {product.status === 'pending' && (
-                        <>
-                          <button
-                            onClick={() => handleStatusChange(product.id, 'approved')}
-                            disabled={loading === product.id}
-                            className="text-green-600 hover:text-green-900 disabled:opacity-50"
-                          >
-                            {loading === product.id ? 'Processing...' : 'Approve'}
-                          </button>
-                          <button
-                            onClick={() => handleStatusChange(product.id, 'rejected')}
-                            disabled={loading === product.id}
-                            className="text-red-600 hover:text-red-900 disabled:opacity-50"
-                          >
-                            {loading === product.id ? 'Processing...' : 'Reject'}
-                          </button>
-                        </>
-                      )}
-                      {product.status === 'approved' && (
-                        <button
-                          onClick={() => handleSyncProduct(product.id)}
-                          disabled={loading === product.id}
-                          className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
+              products.map((product) => {
+                const isExpanded = expandedProducts.has(product.id)
+                const variants = variantsData[product.id] || []
+                const variantCount = parseInt(product.variant_count) || 0
+                
+                return (
+                  <>
+                    <tr key={product.id} className={isExpanded ? 'bg-gray-50' : ''}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {product.sku || '-'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        <Link
+                          href={`/admin/store/${storeId}/products/${product.id}`}
+                          className="text-indigo-600 hover:text-indigo-800"
                         >
-                          {loading === product.id ? 'Syncing...' : 'Sync with Store'}
-                        </button>
-                      )}
-                      {product.status === 'synced' && (
-                        <span className="text-gray-500 text-xs">
-                          Synced {product.woo_product_id ? `(ID: ${product.woo_product_id})` : ''}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))
+                          {product.name}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.sale_price 
+                          ? `$${product.sale_price} (was $${product.regular_price || product.price})`
+                          : `$${product.price || product.regular_price || '0.00'}`
+                        }
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.stock_quantity !== null ? product.stock_quantity : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {variantCount > 0 ? (
+                          <button
+                            onClick={() => toggleVariants(product.id)}
+                            className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium"
+                          >
+                            <span>{variantCount}</span>
+                            <svg
+                              className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                        ) : (
+                          <span className="text-gray-400">0</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {getStatusBadge(product.status)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex items-center gap-2">
+                          {product.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => handleStatusChange(product.id, 'approved')}
+                                disabled={loading === product.id}
+                                className="text-green-600 hover:text-green-900 disabled:opacity-50"
+                              >
+                                {loading === product.id ? 'Processing...' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => handleStatusChange(product.id, 'rejected')}
+                                disabled={loading === product.id}
+                                className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                              >
+                                {loading === product.id ? 'Processing...' : 'Reject'}
+                              </button>
+                            </>
+                          )}
+                          {product.status === 'approved' && (
+                            <button
+                              onClick={() => handleSyncProduct(product.id)}
+                              disabled={loading === product.id}
+                              className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
+                            >
+                              {loading === product.id ? 'Syncing...' : 'Sync with Store'}
+                            </button>
+                          )}
+                          {product.status === 'synced' && (
+                            <span className="text-gray-500 text-xs">
+                              Synced {product.woo_product_id ? `(ID: ${product.woo_product_id})` : ''}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && variantCount > 0 && (
+                      <tr>
+                        <td colSpan="7" className="px-6 py-4 bg-gray-50">
+                          <div className="ml-8">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">Variants ({variants.length})</h4>
+                            {variants.length === 0 ? (
+                              <p className="text-sm text-gray-500">Loading variants...</p>
+                            ) : (
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg">
+                                  <thead className="bg-gray-100">
+                                    <tr>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">SKU</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Size</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Color</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Price</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Stock</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-gray-200">
+                                    {variants.map((variant) => (
+                                      <tr key={variant.id}>
+                                        <td className="px-4 py-2 text-sm text-gray-900">{variant.sku || '-'}</td>
+                                        <td className="px-4 py-2 text-sm text-gray-500">{variant.size || '-'}</td>
+                                        <td className="px-4 py-2 text-sm text-gray-500">{variant.color || '-'}</td>
+                                        <td className="px-4 py-2 text-sm text-gray-500">
+                                          ${variant.price || variant.regular_price || '0.00'}
+                                        </td>
+                                        <td className="px-4 py-2 text-sm text-gray-500">
+                                          {variant.stock_quantity !== null && variant.stock_quantity !== undefined
+                                            ? variant.stock_quantity
+                                            : 0}
+                                        </td>
+                                        <td className="px-4 py-2 text-sm">
+                                          {getStatusBadge(variant.status)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )
+              })
             )}
           </tbody>
         </table>

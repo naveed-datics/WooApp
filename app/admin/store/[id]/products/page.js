@@ -67,11 +67,17 @@ export default async function ProductsPage({ params, searchParams }) {
   const offsetIndex = paramIndex
 
   const productsResult = await db.query(
-    `SELECT id, sku, name, price, regular_price, sale_price, stock_quantity, 
-            status, created_at, reviewed_at, woo_product_id
-     FROM products 
+    `SELECT p.id, p.sku, p.name, p.price, p.regular_price, p.sale_price, p.stock_quantity, 
+            p.status, p.created_at, p.reviewed_at, p.woo_product_id,
+            COALESCE(v.variant_count, 0) as variant_count
+     FROM products p
+     LEFT JOIN (
+       SELECT product_id, COUNT(*) as variant_count
+       FROM product_variations
+       GROUP BY product_id
+     ) v ON v.product_id = p.id
      ${whereClause}
-     ORDER BY created_at DESC
+     ORDER BY p.created_at DESC
      LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
     queryParams
   )
