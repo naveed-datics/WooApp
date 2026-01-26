@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -386,12 +386,6 @@ export default function ProductReview({ storeId, products, status, currentPage, 
                 Name
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Price
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Stock
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Variants
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -405,7 +399,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
           <tbody className="bg-white divide-y divide-gray-200">
             {products.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-6 py-4 text-center text-gray-500">
+                <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
                   No products found.
                 </td>
               </tr>
@@ -416,8 +410,8 @@ export default function ProductReview({ storeId, products, status, currentPage, 
                 const variantCount = parseInt(product.variant_count) || 0
                 
                 return (
-                  <>
-                    <tr key={product.id} className={isExpanded ? 'bg-gray-50' : ''}>
+                  <React.Fragment key={product.id}>
+                    <tr className={isExpanded ? 'bg-gray-50' : ''}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {product.sku || '-'}
                       </td>
@@ -428,15 +422,6 @@ export default function ProductReview({ storeId, products, status, currentPage, 
                         >
                           {product.name}
                         </Link>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {product.sale_price 
-                          ? `$${product.sale_price} (was $${product.regular_price || product.price})`
-                          : `$${product.price || product.regular_price || '0.00'}`
-                        }
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {product.stock_quantity !== null ? product.stock_quantity : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {variantCount > 0 ? (
@@ -499,8 +484,8 @@ export default function ProductReview({ storeId, products, status, currentPage, 
                       </td>
                     </tr>
                     {isExpanded && variantCount > 0 && (
-                      <tr>
-                        <td colSpan="7" className="px-6 py-4 bg-gray-50">
+                      <tr key={`${product.id}-variants`}>
+                        <td colSpan="5" className="px-6 py-4 bg-gray-50">
                           <div className="ml-8">
                             <h4 className="text-sm font-semibold text-gray-700 mb-3">Variants ({variants.length})</h4>
                             {variants.length === 0 ? (
@@ -528,9 +513,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
                                           ${variant.price || variant.regular_price || '0.00'}
                                         </td>
                                         <td className="px-4 py-2 text-sm text-gray-500">
-                                          {variant.stock_quantity !== null && variant.stock_quantity !== undefined
-                                            ? variant.stock_quantity
-                                            : 0}
+                                          {variant.stock_status || '-'}
                                         </td>
                                         <td className="px-4 py-2 text-sm">
                                           {getStatusBadge(variant.status)}
@@ -545,7 +528,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 )
               })
             )}
