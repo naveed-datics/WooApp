@@ -51,7 +51,7 @@ export async function POST(request) {
       )
     }
 
-    console.log(`Processing CSV upload: file=${file.name}, size=${(file.size / 1024).toFixed(2)}KB, type=${fileType}`)
+    console.log(`Processing - CSV upload: file=${file.name}, size=${(file.size / 1024).toFixed(2)}KB, type=${fileType}`)
 
     // Check if admin has access to this store
     if (session.user.role !== 'super_admin') {
