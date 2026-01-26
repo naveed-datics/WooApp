@@ -14,7 +14,19 @@ export default function Sidebar({ user, storeId = null }) {
   }
 
   const isActive = (path) => {
-    return pathname === path || pathname?.startsWith(path)
+    if (!pathname) return false
+    
+    // Exact match
+    if (pathname === path) return true
+    
+    // For store dashboard, only match exact path (not sub-paths)
+    if (path === `/admin/store/${storeId}`) {
+      return pathname === path
+    }
+    
+    // For other paths, match if pathname starts with path followed by '/' or end of string
+    // This allows sub-routes like /admin/store/1/products/10 to match /admin/store/1/products
+    return pathname.startsWith(path + '/') || pathname === path
   }
 
   const isSuperAdmin = user.role === 'super_admin'
