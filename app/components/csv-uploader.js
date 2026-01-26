@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Papa from 'papaparse'
 
 export default function CSVUploader({ storeId, vendors }) {
   const router = useRouter()
@@ -14,6 +15,10 @@ export default function CSVUploader({ storeId, vendors }) {
   })
   const [file, setFile] = useState(null)
   const [dragActive, setDragActive] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 })
+  
+  // Chunk size for sending data (100 rows per chunk to stay under size limits)
+  const CHUNK_SIZE = 100
 
   const handleDrag = (e) => {
     e.preventDefault()
@@ -46,8 +51,29 @@ export default function CSVUploader({ storeId, vendors }) {
       setError('Please select a CSV file')
       return
     }
+    
     setFile(selectedFile)
     setError('')
+    setUploadProgress({ current: 0, total: 0 })
+  }
+
+  const parseCSVFile = (file) => {
+    return new Promise((resolve, reject) => {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => {
+          // Normalize header names - convert to lowercase and remove spaces
+          return header.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+        },
+        complete: (results) => {
+          resolve(results.data)
+        },
+        error: (error) => {
+          reject(error)
+        },
+      })
+    })
   }
 
   const handleSubmit = async (e) => {
@@ -66,37 +92,101 @@ export default function CSVUploader({ storeId, vendors }) {
     }
 
     setLoading(true)
+    setUploadProgress({ current: 0, total: 0 })
 
     try {
-      const uploadFormData = new FormData()
-      uploadFormData.append('file', file)
-      uploadFormData.append('store_id', storeId)
-      uploadFormData.append('vendor_id', formData.vendor_id)
-      uploadFormData.append('file_type', formData.file_type)
-
-      const response = await fetch('/api/csv/upload', {
-        method: 'POST',
-        body: uploadFormData,
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        const errorMsg = data.error || 'Failed to upload CSV'
-        const details = data.details ? ` Details: ${JSON.stringify(data.details)}` : ''
-        throw new Error(errorMsg + details)
+      // Step 1: Parse CSV file on client side
+      setSuccess('Parsing CSV file...')
+      const csvData = await parseCSVFile(file)
+      
+      if (csvData.length === 0) {
+        throw new Error('CSV file is empty')
       }
 
-      const errorCount = data.errors?.length || 0
-      const successMsg = `CSV uploaded successfully! ${data.rowCount} rows processed.`
+      // Step 2: Initialize upload
+      setSuccess(`Initializing upload for ${csvData.length} rows...`)
+      const initResponse = await fetch('/api/csv/init-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId,
+          vendorId: formData.vendor_id,
+          fileType: formData.file_type,
+          fileName: file.name,
+          totalRows: csvData.length,
+        }),
+      })
+
+      if (!initResponse.ok) {
+        const initData = await initResponse.json()
+        throw new Error(initData.error || 'Failed to initialize upload')
+      }
+
+      const { csvUploadId } = await initResponse.json()
+
+      // Step 3: Send data in chunks
+      const totalChunks = Math.ceil(csvData.length / CHUNK_SIZE)
+      setUploadProgress({ current: 0, total: totalChunks })
+      
+      let totalProcessed = 0
+      let totalErrors = []
+
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE
+        const end = Math.min(start + CHUNK_SIZE, csvData.length)
+        const chunk = csvData.slice(start, end)
+
+        setSuccess(`Uploading chunk ${i + 1} of ${totalChunks} (rows ${start + 1}-${end})...`)
+        setUploadProgress({ current: i + 1, total: totalChunks })
+
+        const chunkResponse = await fetch('/api/csv/upload-chunk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            csvUploadId,
+            storeId,
+            vendorId: formData.vendor_id,
+            fileType: formData.file_type,
+            chunk,
+            chunkIndex: i,
+            totalChunks,
+            fileName: file.name,
+          }),
+        })
+
+        if (!chunkResponse.ok) {
+          const chunkData = await chunkResponse.json()
+          throw new Error(`Failed to upload chunk ${i + 1}: ${chunkData.error || 'Unknown error'}`)
+        }
+
+        const chunkResult = await chunkResponse.json()
+        totalProcessed += chunkResult.processedCount
+        if (chunkResult.errors && chunkResult.errors.length > 0) {
+          totalErrors.push(...chunkResult.errors)
+        }
+
+        // Small delay between chunks to avoid overwhelming the server
+        if (i < totalChunks - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+
+      // Step 4: Finalize upload
+      const finalizeResponse = await fetch(`/api/csv/upload/${csvUploadId}/finalize`, {
+        method: 'POST',
+      })
+
+      const errorCount = totalErrors.length
+      const successMsg = `CSV uploaded successfully! ${totalProcessed} rows processed.`
       const errorMsg = errorCount > 0 ? ` ${errorCount} rows had errors.` : ''
       setSuccess(successMsg + errorMsg)
       
-      if (errorCount > 0 && data.errors) {
-        console.error('CSV Upload Errors:', data.errors)
+      if (errorCount > 0) {
+        console.error('CSV Upload Errors:', totalErrors.slice(0, 50))
       }
       
       setFile(null)
+      setUploadProgress({ current: 0, total: 0 })
       
       // Reset file input
       const fileInput = document.getElementById('file-input')
@@ -110,6 +200,7 @@ export default function CSVUploader({ storeId, vendors }) {
     } catch (err) {
       setError(err.message)
       setLoading(false)
+      setUploadProgress({ current: 0, total: 0 })
     }
   }
 
@@ -123,6 +214,16 @@ export default function CSVUploader({ storeId, vendors }) {
       {success && (
         <div className="bg-green-50 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
           {success}
+          {uploadProgress.total > 0 && (
+            <div className="mt-2">
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
         </div>
       )}
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -168,6 +269,9 @@ export default function CSVUploader({ storeId, vendors }) {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             CSV File *
           </label>
+          <p className="text-xs text-gray-500 mb-2">
+            Large files are supported. The file will be processed in chunks.
+          </p>
           <div
             className={`border-2 border-dashed rounded-lg p-8 text-center ${
               dragActive
@@ -181,7 +285,25 @@ export default function CSVUploader({ storeId, vendors }) {
           >
             {file ? (
               <div>
-                <p className="text-sm text-gray-600 mb-2">{file.name}</p>
+                <p className="text-sm text-gray-600 mb-1">
+                  <strong>{file.name}</strong>
+                </p>
+                <p className="text-xs text-gray-500 mb-2">
+                  Size: {(file.size / 1024 / 1024).toFixed(2)}MB
+                </p>
+                {uploadProgress.total > 0 && (
+                  <div className="mt-2">
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Chunk {uploadProgress.current} of {uploadProgress.total}
+                    </p>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setFile(null)}

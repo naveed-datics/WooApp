@@ -38,12 +38,16 @@ export async function POST(request) {
       )
     }
 
-    // Validate file size (Vercel has 4.5MB limit for request body, but we'll be more conservative)
-    const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
+    // Validate file size (Vercel has 4.5MB limit for request body, but we'll use 3MB to be safe)
+    const MAX_FILE_SIZE = 3 * 1024 * 1024 // 3MB
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: `File size exceeds limit. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB` },
-        { status: 400 }
+        { 
+          error: `File size exceeds limit. Maximum size is ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)}MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB. Please split your CSV file into smaller files.`,
+          fileSize: file.size,
+          maxSize: MAX_FILE_SIZE
+        },
+        { status: 413 } // Use 413 Payload Too Large status
       )
     }
 
@@ -341,6 +345,18 @@ export async function POST(request) {
     }
   } catch (error) {
     console.error('Error uploading CSV:', error)
+    
+    // Handle specific Vercel errors
+    if (error.message && error.message.includes('FUNCTION_PAYLOAD_TOO_LARGE')) {
+      return NextResponse.json(
+        { 
+          error: 'File is too large. Maximum file size is 3MB. Please split your CSV file into smaller files or compress it.',
+          code: 'PAYLOAD_TOO_LARGE'
+        },
+        { status: 413 }
+      )
+    }
+    
     return NextResponse.json(
       { error: error.message || 'Failed to upload CSV' },
       { status: 500 }
