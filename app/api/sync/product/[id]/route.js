@@ -53,21 +53,7 @@ export async function POST(request, { params }) {
 
     const product = productResult.rows[0]
 
-    // Auto-approve pending products before publishing
-    if (product.status === 'pending') {
-      await db.query(
-        `UPDATE products SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [product.id]
-      )
-      product.status = 'approved'
-    }
-
-    if (product.status !== 'approved' && product.status !== 'synced') {
-      return NextResponse.json(
-        { error: 'Only approved or synced products can be published' },
-        { status: 400 }
-      )
-    }
+    // Allow publishing regardless of approval status - no approval checks
 
     // Get store credentials
     const storeResult = await db.query(
@@ -125,8 +111,9 @@ export async function POST(request, { params }) {
           hasVariations = parseInt(checkResult.rows[0].count) > 0
         }
         
-        // Now get only APPROVED variations for syncing
+        // Now get APPROVED variations for syncing (after auto-approval if product was pending)
         if (hasVariations) {
+          // First try: Match by parent_sku (preferred method)
           let variationsResult = await db.query(
             `SELECT pv.id, pv.sku, pv.attributes, pv.size, pv.color, pv.price, pv.regular_price, pv.sale_price, 
                     pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
@@ -134,34 +121,36 @@ export async function POST(request, { params }) {
              FROM product_variations pv
              INNER JOIN products p ON pv.product_id = p.id
              WHERE TRIM(pv.parent_sku) = TRIM($1)
-               AND p.store_id = $2 
-               AND pv.status = 'approved'
+               AND p.store_id = $2
              ORDER BY pv.id`,
             [product.sku, store_id]
           )
           
           approvedVariations = variationsResult.rows
+          console.log(`Found ${approvedVariations.length} variations by parent_sku (${product.sku}) - publishing all regardless of status`)
           
-          // Fallback: If no approved variations found by parent_sku, try by product_id
+          // Fallback: If no variations found by parent_sku, try by product_id
           if (approvedVariations.length === 0) {
+            console.log(`No variations found by parent_sku, trying by product_id...`)
             variationsResult = await db.query(
               `SELECT pv.id, pv.sku, pv.attributes, pv.size, pv.color, pv.price, pv.regular_price, pv.sale_price, 
                       pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
                       pv.tax_class, pv.images, pv.woo_variation_id, pv.status
                FROM product_variations pv
-               WHERE pv.product_id = $1 
-                 AND pv.status = 'approved'
+               WHERE pv.product_id = $1
                ORDER BY pv.id`,
               [productId]
             )
             approvedVariations = variationsResult.rows
+            console.log(`Found ${approvedVariations.length} variations by product_id - publishing all regardless of status`)
           }
+          
         }
         
         // Debug logging
         if (hasVariations) {
           console.log(`✓ Product ${productId} (SKU: ${product.sku}) has variations - will create VARIABLE product`)
-          console.log(`  Found ${approvedVariations.length} approved variations to sync`)
+          console.log(`  Found ${approvedVariations.length} variations to sync - publishing all regardless of status`)
         } else {
           console.log(`✗ Product ${productId} (SKU: ${product.sku}) has no variations - will create SIMPLE product`)
         }
@@ -181,14 +170,14 @@ export async function POST(request, { params }) {
                     pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
                     pv.tax_class, pv.images, pv.woo_variation_id, pv.status
              FROM product_variations pv
-             WHERE pv.product_id = $1 
-               AND pv.status = 'approved'
+             WHERE pv.product_id = $1
              ORDER BY pv.id`,
             [productId]
           )
           approvedVariations = variationsResult.rows
           console.log(`✓ Product ${productId} (no SKU) has variations by product_id - will create VARIABLE product`)
-          console.log(`  Found ${approvedVariations.length} approved variations to sync`)
+          console.log(`  Found ${approvedVariations.length} variations to sync - publishing all regardless of status`)
+          
         } else {
           console.log(`✗ Product ${productId} (no SKU) has no variations - will create SIMPLE product`)
         }
@@ -448,9 +437,16 @@ export async function POST(request, { params }) {
       const syncedVariations = []
       if (hasVariations && wooProduct.id && variations.length > 0) {
         console.log(`✅ STEP 3: Creating ${variations.length} variations using batch endpoint`)
+        console.log(`  Product type: ${wooProduct.type}, Product ID: ${wooProduct.id}`)
         
         // Get fresh product data with attributes (needed for attribute IDs)
         const freshProduct = await wooClient.getProduct(wooProduct.id)
+        console.log(`  Product has ${freshProduct.attributes?.length || 0} attributes: ${freshProduct.attributes?.map(a => `${a.name}(${a.id})`).join(', ') || 'None'}`)
+        
+        if (!freshProduct.attributes || freshProduct.attributes.length === 0) {
+          console.error(`  ✗ ERROR: Variable product has no attributes! Variations cannot be created.`)
+          throw new Error('Variable product must have attributes before creating variations')
+        }
         
         // Prepare batch variations payload
         const batchVariations = {
@@ -460,16 +456,19 @@ export async function POST(request, { params }) {
         // Track which variations are being batch created (for mapping results back)
         const batchVariationMap = new Map() // index -> variation database id
         
+        let skippedCount = 0
         for (let i = 0; i < variations.length; i++) {
           const variation = variations[i]
           try {
+            console.log(`  Processing variation ${i + 1}/${variations.length}: SKU=${variation.sku || 'N/A'}, Size=${variation.size || 'N/A'}, Color=${variation.color || 'N/A'}`)
             // Build variation attributes from size/color columns + attributes text
             const variationAttributes = []
+            const processedAttrNames = new Set() // Track which attributes we've already added
             
             // Add Size attribute if present
             if (variation.size && variation.size.trim()) {
               const sizeAttr = freshProduct.attributes?.find(a => 
-                a.name === 'Size' || a.name === 'size'
+                (a.name === 'Size' || a.name === 'size') && !processedAttrNames.has(a.name.toLowerCase())
               )
               if (sizeAttr) {
                 variationAttributes.push({
@@ -477,13 +476,15 @@ export async function POST(request, { params }) {
                   name: sizeAttr.name,
                   option: variation.size.trim(),
                 })
+                processedAttrNames.add(sizeAttr.name.toLowerCase())
               }
             }
             
             // Add Color attribute if present
             if (variation.color && variation.color.trim()) {
               const colorAttr = freshProduct.attributes?.find(a => 
-                a.name === 'Color' || a.name === 'Colour' || a.name === 'color' || a.name === 'colour'
+                (a.name === 'Color' || a.name === 'Colour' || a.name === 'color' || a.name === 'colour') 
+                && !processedAttrNames.has(a.name.toLowerCase())
               )
               if (colorAttr) {
                 variationAttributes.push({
@@ -491,11 +492,12 @@ export async function POST(request, { params }) {
                   name: colorAttr.name,
                   option: variation.color.trim(),
                 })
+                processedAttrNames.add(colorAttr.name.toLowerCase())
               }
             }
             
-            // Also parse from attributes text field (fallback)
-            if (variation.attributes && variationAttributes.length === 0) {
+            // Also parse from attributes text field (supplement size/color or as fallback)
+            if (variation.attributes) {
               const attrPairs = variation.attributes.split(';').map(a => a.trim()).filter(Boolean)
               for (const pair of attrPairs) {
                 let attrName, attrValue
@@ -510,10 +512,17 @@ export async function POST(request, { params }) {
                 
                 if (attrName && attrValue) {
                   // Normalize attribute names
-                  if (attrName.toLowerCase() === 'colour') attrName = 'Color'
+                  const normalizedName = attrName.toLowerCase()
+                  if (normalizedName === 'colour') attrName = 'Color'
+                  
+                  // Skip if we already have this attribute from size/color columns
+                  if (processedAttrNames.has(attrName.toLowerCase())) {
+                    continue
+                  }
                   
                   const parentAttr = freshProduct.attributes?.find(a => 
-                    a.name === attrName || a.name.toLowerCase() === attrName.toLowerCase()
+                    (a.name === attrName || a.name.toLowerCase() === attrName.toLowerCase())
+                    && !processedAttrNames.has(a.name.toLowerCase())
                   )
                   if (parentAttr) {
                     variationAttributes.push({
@@ -521,6 +530,7 @@ export async function POST(request, { params }) {
                       name: parentAttr.name,
                       option: attrValue,
                     })
+                    processedAttrNames.add(parentAttr.name.toLowerCase())
                   }
                 }
               }
@@ -544,8 +554,13 @@ export async function POST(request, { params }) {
             // Add attributes (required for variations)
             if (variationAttributes.length > 0) {
               wooVariationData.attributes = variationAttributes
+              console.log(`    ✓ Found ${variationAttributes.length} attributes: ${variationAttributes.map(a => `${a.name}=${a.option}`).join(', ')}`)
             } else {
-              console.warn(`⚠ Variation ${variation.sku} has no attributes - skipping`)
+              console.error(`    ✗ Variation ${variation.sku || variation.id} has no attributes - cannot create variation without attributes`)
+              console.error(`      Size: ${variation.size || 'N/A'}, Color: ${variation.color || 'N/A'}, Attributes text: ${variation.attributes || 'N/A'}`)
+              console.error(`      Available product attributes: ${freshProduct.attributes?.map(a => a.name).join(', ') || 'None'}`)
+              skippedCount++
+              // Skip this variation - WooCommerce requires attributes for variable product variations
               continue
             }
 
@@ -595,10 +610,13 @@ export async function POST(request, { params }) {
             }
           } catch (variationError) {
             const errorMsg = variationError.response?.data?.message || variationError.message || 'Unknown error'
-            console.error(`Error preparing variation ${variation.id}:`, errorMsg)
+            console.error(`    ✗ Error preparing variation ${variation.id} (SKU: ${variation.sku || 'N/A'}):`, errorMsg)
+            skippedCount++
             // Continue with other variations even if one fails
           }
         }
+        
+        console.log(`  Prepared ${batchVariations.create.length} variations for batch creation (${skippedCount} skipped due to errors)`)
         
         // Execute batch create if there are new variations
         // Split into smaller chunks to avoid timeout (20 variations per batch)
