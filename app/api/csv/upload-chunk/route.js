@@ -243,22 +243,28 @@ export async function POST(request) {
       }
 
       // Update CSV upload record with progress
-      await db.query(
-        `UPDATE csv_uploads 
-         SET row_count = row_count + $1, 
-             error_message = CASE 
-               WHEN error_message IS NULL THEN $2
-               WHEN $2 IS NOT NULL THEN error_message || '\n' || $2
-               ELSE error_message
-             END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3`,
-        [
-          processedCount,
-          errorMessages.length > 0 ? errorMessages.slice(0, 50).join('\n') : null,
-          csvUploadId,
-        ]
-      )
+      const errorText = errorMessages.length > 0 ? errorMessages.slice(0, 50).join('\n') : null
+      
+      if (errorText) {
+        // If there are errors, append to existing error message
+        await db.query(
+          `UPDATE csv_uploads 
+           SET row_count = row_count + $1, 
+               error_message = COALESCE(error_message || '\n' || $2::text, $2::text),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [processedCount, errorText, csvUploadId]
+        )
+      } else {
+        // If no errors, just update row count
+        await db.query(
+          `UPDATE csv_uploads 
+           SET row_count = row_count + $1, 
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [processedCount, csvUploadId]
+        )
+      }
 
       return NextResponse.json({
         success: true,
