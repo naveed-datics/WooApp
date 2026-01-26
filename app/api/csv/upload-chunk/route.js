@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin } from '../../../lib/auth'
 import db from '../../../lib/db'
 import { validateProductRow, validateVariationRow, parseProductRow, parseVariationRow } from '../../../lib/csv-parser'
 import { auth } from '../../auth/[...nextauth]/route'
