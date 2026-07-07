@@ -11,24 +11,29 @@ export async function GET(request, { params }) {
 
     const { id } = await params
     const productId = parseInt(id)
+    const { searchParams } = new URL(request.url)
+    const storeId = parseInt(searchParams.get('store_id'))
 
-    // Get product to verify it exists and user has access
-    const productResult = await db.query(
-      `SELECT id, store_id FROM products WHERE id = $1`,
-      [productId]
-    )
-
-    if (productResult.rows.length === 0) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 })
+    if (!storeId) {
+      return NextResponse.json({ error: 'store_id is required' }, { status: 400 })
     }
 
-    const product = productResult.rows[0]
+    // A product_stores row is the real access boundary now - it tells us
+    // this store's catalog actually includes this product at all.
+    const productStoreCheck = await db.query(
+      'SELECT id FROM product_stores WHERE product_id = $1 AND store_id = $2',
+      [productId, storeId]
+    )
+
+    if (productStoreCheck.rows.length === 0) {
+      return NextResponse.json({ error: 'Product not found for this store' }, { status: 404 })
+    }
 
     // Check if admin has access to this store
     if (session.user.role !== 'super_admin') {
       const accessCheck = await db.query(
         'SELECT id FROM admin_stores WHERE user_id = $1 AND store_id = $2',
-        [session.user.id, product.store_id]
+        [session.user.id, storeId]
       )
 
       if (accessCheck.rows.length === 0) {
@@ -41,7 +46,7 @@ export async function GET(request, { params }) {
 
     // Get variations
     const variationsResult = await db.query(
-      `SELECT id, sku, attributes, size, color, price, regular_price, sale_price, 
+      `SELECT id, sku, attributes, size, color, price, regular_price, sale_price,
               stock_quantity, stock_status, tax_class, image, images, status
        FROM product_variations
        WHERE product_id = $1

@@ -21,13 +21,20 @@ export default async function ProductDetailPage({ params }) {
     }
   }
 
+  const storeResult = await db.query(
+    'SELECT connection_method FROM stores WHERE id = $1',
+    [storeId]
+  )
+  const connectionMethod = storeResult.rows[0]?.connection_method
+
   // Get product
   const productResult = await db.query(
-    `SELECT id, sku, name, description, short_description, price, regular_price, 
-            sale_price, stock_quantity, manage_stock, stock_status, categories, 
-            tags, images, attributes, status, created_at, reviewed_at
-     FROM products 
-     WHERE id = $1 AND store_id = $2`,
+    `SELECT p.id, p.sku, p.name, p.description, p.short_description, p.price, p.regular_price,
+            p.sale_price, p.stock_quantity, p.manage_stock, p.stock_status, p.categories,
+            p.tags, p.images, p.attributes, ps.status, p.created_at, ps.reviewed_at
+     FROM products p
+     INNER JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $2
+     WHERE p.id = $1`,
     [productId, storeId]
   )
 
@@ -58,8 +65,9 @@ export default async function ProductDetailPage({ params }) {
         </a>
         <h1 className="text-3xl font-bold text-gray-900 mt-2">{product.name}</h1>
       </div>
-      <ProductDetail 
+      <ProductDetail
         storeId={storeId}
+        connectionMethod={connectionMethod}
         product={product}
         variations={variationsResult.rows}
       />

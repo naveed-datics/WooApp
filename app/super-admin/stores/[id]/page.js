@@ -1,6 +1,7 @@
 import { requireSuperAdmin } from '../../../lib/auth'
 import db from '../../../lib/db'
 import StoreForm from '../../../components/super-admin/StoreForm'
+import ExportApiKeyCard from '../../../components/super-admin/ExportApiKeyCard'
 import { Button } from '@/app/components/ui/button'
 import {
   Card,
@@ -15,7 +16,7 @@ export default async function EditStorePage({ params }) {
   const { id } = await params
 
   const result = await db.query(
-    'SELECT id, name, store_url, consumer_key, consumer_secret, status FROM stores WHERE id = $1',
+    'SELECT id, name, store_url, consumer_key, consumer_secret, status, export_api_key, connection_method FROM stores WHERE id = $1',
     [id]
   )
 
@@ -43,6 +44,7 @@ export default async function EditStorePage({ params }) {
     <div className="container mx-auto py-6 space-y-6">
       <h1 className="text-3xl font-bold">Edit Store</h1>
       <StoreForm store={store} />
+      <ExportApiKeyCard storeId={store.id} initialApiKey={store.export_api_key} />
     </div>
   )
 }

@@ -22,7 +22,7 @@ export default async function SyncPage({ params }) {
 
   // Get store info
   const storeResult = await db.query(
-    'SELECT id, name, store_url, status, last_sync_at FROM stores WHERE id = $1',
+    'SELECT id, name, store_url, status, last_sync_at, connection_method FROM stores WHERE id = $1',
     [storeId]
   )
 
@@ -34,7 +34,7 @@ export default async function SyncPage({ params }) {
 
   // Get approved products count
   const productsResult = await db.query(
-    "SELECT COUNT(*) as count FROM products WHERE store_id = $1 AND status = 'approved'",
+    "SELECT COUNT(*) as count FROM product_stores WHERE store_id = $1 AND status = 'approved'",
     [storeId]
   )
 

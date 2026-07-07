@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-export default function ProductDetail({ storeId, product, variations }) {
+export default function ProductDetail({ storeId, connectionMethod, product, variations }) {
+  const isPluginStore = connectionMethod === 'plugin'
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -72,7 +73,7 @@ export default function ProductDetail({ storeId, product, variations }) {
       const response = await fetch(`/api/products/${product.id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status: newStatus, store_id: storeId }),
       })
 
       if (!response.ok) {
@@ -154,13 +155,19 @@ export default function ProductDetail({ storeId, product, variations }) {
                 </>
               )}
               {product.status !== 'rejected' && (
-                <button
-                  onClick={handlePublish}
-                  disabled={loading}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {loading ? 'Publishing...' : 'Publish'}
-                </button>
+                isPluginStore ? (
+                  <span className="text-sm text-gray-500 italic">
+                    Pulled automatically by the WooApp Connector plugin
+                  </span>
+                ) : (
+                  <button
+                    onClick={handlePublish}
+                    disabled={loading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Publishing...' : 'Publish'}
+                  </button>
+                )
               )}
             </>
           ) : (

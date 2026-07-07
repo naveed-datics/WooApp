@@ -41,7 +41,7 @@ export default async function StoreDashboardPage({ params }) {
   // Get stats
   const [productsResult, ordersResult, csvUploadsResult] = await Promise.all([
     db.query(
-      'SELECT COUNT(*) as count FROM products WHERE store_id = $1',
+      'SELECT COUNT(*) as count FROM product_stores WHERE store_id = $1',
       [storeId]
     ),
     db.query(

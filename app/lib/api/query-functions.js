@@ -217,11 +217,11 @@ export const productQueries = {
     return await response.json()
   },
 
-  updateStatus: async ({ id, status }) => {
+  updateStatus: async ({ id, status, storeId }) => {
     const response = await fetch(`/api/products/${id}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, store_id: storeId }),
     })
     if (!response.ok) {
       const error = await response.json()
@@ -230,11 +230,11 @@ export const productQueries = {
     return await response.json()
   },
 
-  bulkUpdateStatus: async ({ productIds, status }) => {
+  bulkUpdateStatus: async ({ productIds, status, storeId }) => {
     const response = await fetch('/api/products/bulk-status', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productIds, status }),
+      body: JSON.stringify({ productIds, status, store_id: storeId }),
     })
     if (!response.ok) {
       const error = await response.json()

@@ -103,7 +103,13 @@ function parseProductRow(row) {
   }
   // Add other attributes if needed
   const attributesString = attributes.length > 0 ? attributes.join('; ') : (row.attributes || null)
-  
+
+  // Brand is a single-value (non-variation) attribute. Accept the common
+  // header shapes an "attribute:pa_Brand" / "attribute:Brand" / "brand"
+  // column normalizes to after transformHeader() strips punctuation.
+  const brandValue =
+    row.attributepa_brand || row.attributebrand || row.pa_brand || row.brand || null
+
   return {
     sku: skuValue ? String(skuValue).trim() : null,
     name: String(nameValue).trim() || '',
@@ -119,6 +125,7 @@ function parseProductRow(row) {
     tags: row.tags ? String(row.tags).trim() : null,
     images: row.images ? String(row.images).trim() : null,
     attributes: attributesString ? String(attributesString).trim() : null,
+    brand: brandValue ? String(brandValue).trim() : null,
   }
 }
 

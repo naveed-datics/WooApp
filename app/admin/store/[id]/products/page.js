@@ -28,7 +28,7 @@ export default async function ProductsPage({ params, searchParams }) {
 
   // Get store info
   const storeResult = await db.query(
-    'SELECT id, name FROM stores WHERE id = $1',
+    'SELECT id, name, connection_method FROM stores WHERE id = $1',
     [storeId]
   )
 
@@ -40,37 +40,38 @@ export default async function ProductsPage({ params, searchParams }) {
 
   // Get products based on status and search
   // Build WHERE clause and parameters dynamically
-  let whereParts = ['store_id = $1']
+  let whereParts = []
   let queryParams = [storeId]
   let paramIndex = 2
-  
+
   if (status !== 'all') {
-    whereParts.push(`status = $${paramIndex}`)
+    whereParts.push(`ps.status = $${paramIndex}`)
     queryParams.push(status)
     paramIndex++
   }
-  
+
   if (search && search.trim()) {
-    whereParts.push(`(LOWER(name) LIKE LOWER($${paramIndex}) OR LOWER(sku) LIKE LOWER($${paramIndex}))`)
+    whereParts.push(`(LOWER(p.name) LIKE LOWER($${paramIndex}) OR LOWER(p.sku) LIKE LOWER($${paramIndex}))`)
     queryParams.push(`%${search.trim()}%`)
     paramIndex++
   }
-  
-  const whereClause = `WHERE ${whereParts.join(' AND ')}`
-  
+
+  const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : ''
+
   // Add limit and offset
   queryParams.push(limit)
   const limitIndex = paramIndex
   paramIndex++
-  
+
   queryParams.push(offset)
   const offsetIndex = paramIndex
 
   const productsResult = await db.query(
-    `SELECT p.id, p.sku, p.name, p.price, p.regular_price, p.sale_price, p.stock_quantity, 
-            p.status, p.created_at, p.reviewed_at, p.woo_product_id,
+    `SELECT p.id, p.sku, p.name, p.price, p.regular_price, p.sale_price, p.stock_quantity,
+            ps.status, p.created_at, ps.reviewed_at, ps.woo_product_id,
             COALESCE(v.variant_count, 0) as variant_count
      FROM products p
+     INNER JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $1
      LEFT JOIN (
        SELECT product_id, COUNT(*) as variant_count
        FROM product_variations
@@ -84,26 +85,27 @@ export default async function ProductsPage({ params, searchParams }) {
 
   // Get approved products count for sync button
   const approvedCountResult = await db.query(
-    "SELECT COUNT(*) as count FROM products WHERE store_id = $1 AND status = 'approved'",
+    "SELECT COUNT(*) as count FROM product_stores WHERE store_id = $1 AND status = 'approved'",
     [storeId]
   )
   const approvedProductsCount = parseInt(approvedCountResult.rows[0].count)
 
   // Count query with same filters (reuse whereClause and build params)
   const countParams = [storeId]
-  let countParamIndex = 2
-  
+
   if (status !== 'all') {
     countParams.push(status)
-    countParamIndex++
   }
-  
+
   if (search && search.trim()) {
     countParams.push(`%${search.trim()}%`)
   }
-  
+
   const countResult = await db.query(
-    `SELECT COUNT(*) as total FROM products ${whereClause}`,
+    `SELECT COUNT(*) as total
+     FROM products p
+     INNER JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $1
+     ${whereClause}`,
     countParams
   )
 
@@ -116,8 +118,9 @@ export default async function ProductsPage({ params, searchParams }) {
         <h1 className="text-3xl font-bold text-gray-900">Review Products</h1>
         <p className="text-gray-600 mt-1">Store: {store.name}</p>
       </div>
-      <ProductReview 
+      <ProductReview
         storeId={storeId}
+        connectionMethod={store.connection_method}
         products={productsResult.rows}
         status={status}
         currentPage={page}
@@ -130,5 +133,3 @@ export default async function ProductsPage({ params, searchParams }) {
     </div>
   )
 }
-
-

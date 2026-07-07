@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server'
+import crypto from 'crypto'
 import { requireSuperAdmin } from '../../lib/auth'
 import db from '../../lib/db'
 
 export async function GET() {
   try {
     await requireSuperAdmin()
-    
+
     const result = await db.query(
-      'SELECT id, name, store_url, status, last_sync_at, created_at FROM stores ORDER BY created_at DESC'
+      'SELECT id, name, store_url, status, connection_method, last_sync_at, created_at FROM stores ORDER BY created_at DESC'
     )
-    
+
     return NextResponse.json(result.rows)
   } catch (error) {
     return NextResponse.json(
@@ -22,22 +23,40 @@ export async function GET() {
 export async function POST(request) {
   try {
     await requireSuperAdmin()
-    
+
     const body = await request.json()
     const { name, store_url, consumer_key, consumer_secret, status } = body
+    const connectionMethod = body.connection_method === 'plugin' ? 'plugin' : 'api'
 
-    if (!name || !store_url || !consumer_key || !consumer_secret) {
+    if (!name || !store_url) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       )
     }
 
+    if (connectionMethod === 'api' && (!consumer_key || !consumer_secret)) {
+      return NextResponse.json(
+        { error: 'Consumer Key and Consumer Secret are required for the REST API connection method' },
+        { status: 400 }
+      )
+    }
+
+    const exportApiKey = crypto.randomBytes(24).toString('hex')
+
     const result = await db.query(
-      `INSERT INTO stores (name, store_url, consumer_key, consumer_secret, status)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, store_url, status, created_at`,
-      [name, store_url, consumer_key, consumer_secret, status || 'active']
+      `INSERT INTO stores (name, store_url, consumer_key, consumer_secret, status, export_api_key, connection_method)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, store_url, status, connection_method, created_at`,
+      [
+        name,
+        store_url,
+        connectionMethod === 'api' ? consumer_key : (consumer_key || null),
+        connectionMethod === 'api' ? consumer_secret : (consumer_secret || null),
+        status || 'active',
+        exportApiKey,
+        connectionMethod,
+      ]
     )
 
     return NextResponse.json(result.rows[0], { status: 201 })

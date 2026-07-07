@@ -6,7 +6,7 @@ export default async function StoresPage() {
   await requireSuperAdmin()
 
   const result = await db.query(
-    'SELECT id, name, store_url, status, last_sync_at, created_at FROM stores ORDER BY created_at DESC'
+    'SELECT id, name, store_url, status, connection_method, last_sync_at, created_at FROM stores ORDER BY created_at DESC'
   )
 
   return (

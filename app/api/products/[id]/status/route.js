@@ -9,10 +9,17 @@ export async function PUT(request, { params }) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
+
     const { id } = await params
     const body = await request.json()
-    const { status } = body
+    const { status, store_id: storeId } = body
+
+    if (!storeId) {
+      return NextResponse.json(
+        { error: 'store_id is required' },
+        { status: 400 }
+      )
+    }
 
     if (!['pending', 'approved', 'rejected', 'synced'].includes(status)) {
       return NextResponse.json(
@@ -22,30 +29,32 @@ export async function PUT(request, { params }) {
     }
 
     const result = await db.query(
-      `UPDATE products 
+      `UPDATE product_stores
        SET status = $1, reviewed_by = $2, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3
+       WHERE product_id = $3 AND store_id = $4
        RETURNING *`,
-      [status, session.user.id, id]
+      [status, session.user.id, id, storeId]
     )
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Product not found' },
+        { error: 'Product not found for this store' },
         { status: 404 }
       )
     }
 
     // If product is being approved, also approve all associated variations
+    // (variation status/woo_variation_id stay global, not per-store - see
+    // scripts/migrate-product-store-links.js for why).
     if (status === 'approved') {
       const variationsResult = await db.query(
-        `UPDATE product_variations 
+        `UPDATE product_variations
          SET status = 'approved', updated_at = CURRENT_TIMESTAMP
          WHERE product_id = $1 AND status = 'pending'
          RETURNING id`,
         [id]
       )
-      
+
       console.log(`Approved ${variationsResult.rows.length} variations for product ${id}`)
     }
 
@@ -64,5 +73,3 @@ export async function PUT(request, { params }) {
     )
   }
 }
-
-

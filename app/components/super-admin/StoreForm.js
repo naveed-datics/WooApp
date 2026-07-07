@@ -25,6 +25,7 @@ export default function StoreForm({ store = null }) {
     consumer_key: store?.consumer_key || '',
     consumer_secret: store?.consumer_secret || '',
     status: store?.status || 'active',
+    connection_method: store?.connection_method || 'api',
   })
   const [testingConnection, setTestingConnection] = useState(false)
   const [connectionResult, setConnectionResult] = useState(null)
@@ -58,6 +59,13 @@ export default function StoreForm({ store = null }) {
       setConnectionResult(null)
     }
   }
+
+  const handleConnectionMethodChange = (method) => {
+    setFormData({ ...formData, connection_method: method })
+    setConnectionResult(null)
+  }
+
+  const isApiMethod = formData.connection_method === 'api'
 
   const handleTestConnection = async () => {
     if (!formData.store_url || !formData.consumer_key || !formData.consumer_secret) {
@@ -139,60 +147,107 @@ export default function StoreForm({ store = null }) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="consumer_key">
-              WooCommerce Consumer Key <span className="text-destructive">*</span>
+            <Label>
+              Connection Method <span className="text-destructive">*</span>
             </Label>
-            <Input
-              type="text"
-              id="consumer_key"
-              name="consumer_key"
-              required
-              value={formData.consumer_key}
-              onChange={handleChange}
-              disabled={mutation.isPending}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="consumer_secret">
-              WooCommerce Consumer Secret <span className="text-destructive">*</span>
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                type="password"
-                id="consumer_secret"
-                name="consumer_secret"
-                required
-                value={formData.consumer_secret}
-                onChange={handleChange}
-                disabled={mutation.isPending || testingConnection}
-                className="flex-1"
-              />
-              <Button
+            <div className="grid grid-cols-2 gap-3">
+              <button
                 type="button"
-                variant="outline"
-                onClick={handleTestConnection}
-                disabled={mutation.isPending || testingConnection || !formData.store_url || !formData.consumer_key || !formData.consumer_secret}
+                onClick={() => handleConnectionMethodChange('api')}
+                disabled={mutation.isPending}
+                className={`text-left rounded-md border px-4 py-3 transition-colors ${
+                  isApiMethod ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-input'
+                }`}
               >
-                {testingConnection ? 'Testing...' : 'Test Connect'}
-              </Button>
+                <div className="font-medium">REST API</div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  WooApp connects to WooCommerce using a Consumer Key/Secret. Requires the store to be publicly reachable.
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConnectionMethodChange('plugin')}
+                disabled={mutation.isPending}
+                className={`text-left rounded-md border px-4 py-3 transition-colors ${
+                  !isApiMethod ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-input'
+                }`}
+              >
+                <div className="font-medium">WordPress Plugin</div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Install the "WooApp Connector" plugin on the WooCommerce site; it pulls products from WooApp. No Consumer Key/Secret needed.
+                </div>
+              </button>
             </div>
           </div>
 
-          {connectionResult && (
-            <div className={`px-4 py-3 rounded-md border ${
-              connectionResult.success
-                ? 'bg-green-50 border-green-400 text-green-700'
-                : 'bg-red-50 border-red-400 text-red-700'
-            }`}>
-              <div className="font-medium">
-                {connectionResult.success ? '✓ Connection Successful' : '✗ Connection Failed'}
+          {isApiMethod ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="consumer_key">
+                  WooCommerce Consumer Key <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  type="text"
+                  id="consumer_key"
+                  name="consumer_key"
+                  required
+                  value={formData.consumer_key}
+                  onChange={handleChange}
+                  disabled={mutation.isPending}
+                />
               </div>
-              <div className="text-sm mt-1">
-                {connectionResult.success
-                  ? connectionResult.message || 'WooCommerce API credentials are valid.'
-                  : connectionResult.error || 'Failed to connect to WooCommerce'}
+
+              <div className="space-y-2">
+                <Label htmlFor="consumer_secret">
+                  WooCommerce Consumer Secret <span className="text-destructive">*</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    id="consumer_secret"
+                    name="consumer_secret"
+                    required
+                    value={formData.consumer_secret}
+                    onChange={handleChange}
+                    disabled={mutation.isPending || testingConnection}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleTestConnection}
+                    disabled={mutation.isPending || testingConnection || !formData.store_url || !formData.consumer_key || !formData.consumer_secret}
+                  >
+                    {testingConnection ? 'Testing...' : 'Test Connect'}
+                  </Button>
+                </div>
               </div>
+
+              {connectionResult && (
+                <div className={`px-4 py-3 rounded-md border ${
+                  connectionResult.success
+                    ? 'bg-green-50 border-green-400 text-green-700'
+                    : 'bg-red-50 border-red-400 text-red-700'
+                }`}>
+                  <div className="font-medium">
+                    {connectionResult.success ? '✓ Connection Successful' : '✗ Connection Failed'}
+                  </div>
+                  <div className="text-sm mt-1">
+                    {connectionResult.success
+                      ? connectionResult.message || 'WooCommerce API credentials are valid.'
+                      : connectionResult.error || 'Failed to connect to WooCommerce'}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="px-4 py-3 rounded-md border border-blue-200 bg-blue-50 text-blue-800 text-sm space-y-1">
+              <p className="font-medium">No WooCommerce API keys needed for this method.</p>
+              <p>
+                {store
+                  ? 'Scroll down for the Store ID and Export API Key to paste into the "WooApp Connector" plugin settings in WordPress.'
+                  : 'After saving, open this store again to get the Store ID and Export API Key for the "WooApp Connector" plugin in WordPress.'}
+              </p>
             </div>
           )}
 

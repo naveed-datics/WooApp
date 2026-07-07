@@ -9,13 +9,20 @@ export async function PUT(request) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
+
     const body = await request.json()
-    const { productIds, status } = body
+    const { productIds, status, store_id: storeId } = body
 
     if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
       return NextResponse.json(
         { error: 'Product IDs are required' },
+        { status: 400 }
+      )
+    }
+
+    if (!storeId) {
+      return NextResponse.json(
+        { error: 'store_id is required' },
         { status: 400 }
       )
     }
@@ -27,23 +34,25 @@ export async function PUT(request) {
       )
     }
 
-    const placeholders = productIds.map((_, i) => `$${i + 1}`).join(',')
-    
+    // Placeholders start at $4 - $1..$3 are status/reviewed_by/store_id.
+    const placeholders = productIds.map((_, i) => `$${i + 4}`).join(',')
+
     const result = await db.query(
-      `UPDATE products 
+      `UPDATE product_stores
        SET status = $1, reviewed_by = $2, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id IN (${placeholders}) AND status = 'pending'
-       RETURNING id`,
-      [status, session.user.id, ...productIds]
+       WHERE store_id = $3 AND product_id IN (${placeholders}) AND status = 'pending'
+       RETURNING product_id`,
+      [status, session.user.id, storeId, ...productIds]
     )
 
     // If products are being approved, also approve all associated variations
+    // (variation status stays global, not per-store).
     let variationsApproved = 0
     if (status === 'approved' && result.rows.length > 0) {
-      const approvedProductIds = result.rows.map(r => r.id)
+      const approvedProductIds = result.rows.map((r) => r.product_id)
       const productIdsPlaceholders = approvedProductIds.map((_, i) => `$${i + 1}`).join(',')
       const variationsResult = await db.query(
-        `UPDATE product_variations 
+        `UPDATE product_variations
          SET status = 'approved', updated_at = CURRENT_TIMESTAMP
          WHERE product_id IN (${productIdsPlaceholders}) AND status = 'pending'
          RETURNING id`,
@@ -66,5 +75,3 @@ export async function PUT(request) {
     )
   }
 }
-
-

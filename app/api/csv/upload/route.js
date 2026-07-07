@@ -142,18 +142,20 @@ export async function POST(request) {
 
               const productData = parseProductRow(row)
               const existing = await db.query(
-                'SELECT id FROM products WHERE store_id = $1 AND sku = $2 LIMIT 1',
-                [storeId, productData.sku]
+                'SELECT id FROM products WHERE sku = $1 LIMIT 1',
+                [productData.sku]
               )
 
+              let productId
               if (existing.rows.length > 0) {
+                productId = existing.rows[0].id
                 await db.query(
                   `UPDATE products SET
                     csv_upload_id = $1, name = $2, description = $3, short_description = $4,
                     price = $5, regular_price = $6, sale_price = $7, stock_quantity = $8,
                     manage_stock = $9, stock_status = $10, categories = $11, tags = $12,
-                    images = $13, attributes = $14, updated_at = NOW()
-                   WHERE id = $15`,
+                    images = $13, attributes = $14, brand = $15, updated_at = NOW()
+                   WHERE id = $16`,
                   [
                     csvUploadId,
                     productData.name,
@@ -169,19 +171,28 @@ export async function POST(request) {
                     productData.tags,
                     productData.images,
                     productData.attributes,
-                    existing.rows[0].id,
+                    productData.brand,
+                    productId,
                   ]
                 )
-              } else {
+                // Ensure the uploading store can see this product without
+                // disturbing any store's existing review/sync status.
                 await db.query(
+                  `INSERT INTO product_stores (product_id, store_id, status)
+                   VALUES ($1, $2, 'pending')
+                   ON CONFLICT (product_id, store_id) DO NOTHING`,
+                  [productId, storeId]
+                )
+              } else {
+                const inserted = await db.query(
                   `INSERT INTO products (
-                    csv_upload_id, store_id, sku, name, description, short_description,
+                    csv_upload_id, sku, name, description, short_description,
                     price, regular_price, sale_price, stock_quantity, manage_stock,
-                    stock_status, categories, tags, images, attributes, status
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending')`,
+                    stock_status, categories, tags, images, attributes, brand
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                  RETURNING id`,
                   [
                     csvUploadId,
-                    storeId,
                     productData.sku,
                     productData.name,
                     productData.description,
@@ -196,7 +207,18 @@ export async function POST(request) {
                     productData.tags,
                     productData.images,
                     productData.attributes,
+                    productData.brand,
                   ]
+                )
+                productId = inserted.rows[0].id
+                // New product: visible to every active store immediately,
+                // not just the one that uploaded it - each store still
+                // reviews/syncs independently from 'pending'.
+                await db.query(
+                  `INSERT INTO product_stores (product_id, store_id, status)
+                   SELECT $1, id, 'pending' FROM stores WHERE status = 'active'
+                   ON CONFLICT (product_id, store_id) DO NOTHING`,
+                  [productId]
                 )
               }
               processedCount++
@@ -229,8 +251,8 @@ export async function POST(request) {
               const variationData = parseVariationRow(row)
 
               const productResult = await db.query(
-                'SELECT id FROM products WHERE store_id = $1 AND sku = $2 LIMIT 1',
-                [storeId, variationData.parent_sku]
+                'SELECT id FROM products WHERE sku = $1 LIMIT 1',
+                [variationData.parent_sku]
               )
 
               if (productResult.rows.length === 0) {

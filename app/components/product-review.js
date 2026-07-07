@@ -4,7 +4,8 @@ import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
-export default function ProductReview({ storeId, products, status, currentPage, totalPages, total, limit = 50, search = '', approvedProductsCount = 0 }) {
+export default function ProductReview({ storeId, connectionMethod, products, status, currentPage, totalPages, total, limit = 50, search = '', approvedProductsCount = 0 }) {
+  const isPluginStore = connectionMethod === 'plugin'
   const router = useRouter()
   const [loading, setLoading] = useState(null)
   const [error, setError] = useState('')
@@ -101,7 +102,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
       const response = await fetch(`/api/products/${productId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status: newStatus, store_id: storeId }),
       })
 
       if (!response.ok) {
@@ -139,6 +140,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
         body: JSON.stringify({
           productIds: selectedProducts.map((p) => p.id),
           status: action === 'approve' ? 'approved' : 'rejected',
+          store_id: storeId,
         }),
       })
 
@@ -197,6 +199,42 @@ export default function ProductReview({ storeId, products, status, currentPage, 
     }
   }
 
+  const handleTriggerImport = async () => {
+    if (approvedProductsCount === 0) {
+      alert('No approved products to pull in')
+      return
+    }
+
+    setLoading('sync-all')
+    setError('')
+    setSuccess('')
+
+    try {
+      const response = await fetch(`/api/stores/${storeId}/trigger-import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_resync: false }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to trigger import')
+      }
+
+      const progress = data.progress || {}
+      setSuccess(`Import triggered! ${progress.created ?? 0} created, ${progress.updated ?? 0} updated, ${data.syncedCount ?? 0} marked synced.`)
+      setLoading(null)
+
+      setTimeout(() => {
+        router.refresh()
+      }, 2000)
+    } catch (err) {
+      setError(err.message)
+      setLoading(null)
+    }
+  }
+
   const handleSyncProduct = async (productId) => {
     setLoading(productId)
     setError('')
@@ -241,7 +279,7 @@ export default function ProductReview({ storeId, products, status, currentPage, 
       newExpanded.add(productId)
       if (!variantsData[productId]) {
         try {
-          const response = await fetch(`/api/products/${productId}/variations`)
+          const response = await fetch(`/api/products/${productId}/variations?store_id=${storeId}`)
           if (response.ok) {
             const data = await response.json()
             setVariantsData(prev => ({
@@ -359,13 +397,23 @@ export default function ProductReview({ storeId, products, status, currentPage, 
         
         {/* Sync All Button */}
         {approvedProductsCount > 0 && (
-          <button
-            onClick={handleSyncAll}
-            disabled={loading === 'sync-all'}
-            className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-          >
-            {loading === 'sync-all' ? 'Syncing...' : `Sync All (${approvedProductsCount} approved products)`}
-          </button>
+          isPluginStore ? (
+            <button
+              onClick={handleTriggerImport}
+              disabled={loading === 'sync-all'}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            >
+              {loading === 'sync-all' ? 'Triggering...' : `Trigger Import Now (${approvedProductsCount} approved)`}
+            </button>
+          ) : (
+            <button
+              onClick={handleSyncAll}
+              disabled={loading === 'sync-all'}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            >
+              {loading === 'sync-all' ? 'Syncing...' : `Sync All (${approvedProductsCount} approved products)`}
+            </button>
+          )
         )}
       </div>
 
@@ -467,13 +515,17 @@ export default function ProductReview({ storeId, products, status, currentPage, 
                             </>
                           )}
                           {product.status === 'approved' && (
-                            <button
-                              onClick={() => handleSyncProduct(product.id)}
-                              disabled={loading === product.id}
-                              className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
-                            >
-                              {loading === product.id ? 'Syncing...' : 'Sync with Store'}
-                            </button>
+                            isPluginStore ? (
+                              <span className="text-gray-500 text-xs italic">Pulled by plugin</span>
+                            ) : (
+                              <button
+                                onClick={() => handleSyncProduct(product.id)}
+                                disabled={loading === product.id}
+                                className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
+                              >
+                                {loading === product.id ? 'Syncing...' : 'Sync with Store'}
+                              </button>
+                            )
                           )}
                           {product.status === 'synced' && (
                             <span className="text-gray-500 text-xs">

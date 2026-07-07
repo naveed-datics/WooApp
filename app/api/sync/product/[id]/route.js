@@ -39,11 +39,12 @@ export async function POST(request, { params }) {
 
     // Get product
     const productResult = await db.query(
-      `SELECT id, sku, name, description, short_description, price, regular_price, 
-              sale_price, stock_quantity, manage_stock, stock_status, categories, tags, images, 
-              attributes, woo_product_id, store_id, status
-       FROM products 
-       WHERE id = $1 AND store_id = $2`,
+      `SELECT p.id, p.sku, p.name, p.description, p.short_description, p.price, p.regular_price,
+              p.sale_price, p.stock_quantity, p.manage_stock, p.stock_status, p.categories, p.tags, p.images,
+              p.attributes, ps.woo_product_id, ps.status
+       FROM products p
+       INNER JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $2
+       WHERE p.id = $1`,
       [productId, store_id]
     )
 
@@ -57,7 +58,7 @@ export async function POST(request, { params }) {
 
     // Get store credentials
     const storeResult = await db.query(
-      'SELECT id, name, store_url, consumer_key, consumer_secret FROM stores WHERE id = $1',
+      'SELECT id, name, store_url, consumer_key, consumer_secret, connection_method FROM stores WHERE id = $1',
       [store_id]
     )
 
@@ -66,6 +67,13 @@ export async function POST(request, { params }) {
     }
 
     const store = storeResult.rows[0]
+
+    if (store.connection_method === 'plugin') {
+      return NextResponse.json(
+        { error: 'This store uses the WooApp Connector plugin, which pulls approved products itself - WooApp does not push to it. Trigger an import from WordPress admin instead.' },
+        { status: 400 }
+      )
+    }
 
     if (!store.store_url || !store.consumer_key || !store.consumer_secret) {
       return NextResponse.json(
@@ -87,14 +95,14 @@ export async function POST(request, { params }) {
       let hasVariations = false
       
       if (product.sku) {
-        // First try: Match by parent_sku (preferred method) - check for ANY variations
+        // First try: Match by parent_sku (preferred method) - check for ANY
+        // variations. parent_sku is globally unique to one canonical
+        // product now, so no store filter is needed here.
         let checkResult = await db.query(
           `SELECT COUNT(*) as count
            FROM product_variations pv
-           INNER JOIN products p ON pv.product_id = p.id
-           WHERE TRIM(pv.parent_sku) = TRIM($1)
-             AND p.store_id = $2`,
-          [product.sku, store_id]
+           WHERE TRIM(pv.parent_sku) = TRIM($1)`,
+          [product.sku]
         )
         
         hasVariations = parseInt(checkResult.rows[0].count) > 0
@@ -115,15 +123,13 @@ export async function POST(request, { params }) {
         if (hasVariations) {
           // First try: Match by parent_sku (preferred method)
           let variationsResult = await db.query(
-            `SELECT pv.id, pv.sku, pv.attributes, pv.size, pv.color, pv.price, pv.regular_price, pv.sale_price, 
-                    pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image, 
+            `SELECT pv.id, pv.sku, pv.attributes, pv.size, pv.color, pv.price, pv.regular_price, pv.sale_price,
+                    pv.stock_quantity, pv.manage_stock, pv.stock_status, pv.image,
                     pv.tax_class, pv.images, pv.woo_variation_id, pv.status
              FROM product_variations pv
-             INNER JOIN products p ON pv.product_id = p.id
              WHERE TRIM(pv.parent_sku) = TRIM($1)
-               AND p.store_id = $2
              ORDER BY pv.id`,
-            [product.sku, store_id]
+            [product.sku]
           )
           
           approvedVariations = variationsResult.rows
@@ -373,20 +379,20 @@ export async function POST(request, { params }) {
           wooProduct = await wooClient.createProduct(wooProductData)
           // Clear the invalid woo_product_id from database
           await db.query(
-            `UPDATE products SET woo_product_id = NULL WHERE id = $1`,
-            [product.id]
+            `UPDATE product_stores SET woo_product_id = NULL WHERE product_id = $1 AND store_id = $2`,
+            [product.id, store_id]
           )
         }
       } else {
         wooProduct = await wooClient.createProduct(wooProductData)
       }
 
-      // Update product in database
+      // Update product in database (per-store sync state)
       await db.query(
-        `UPDATE products 
+        `UPDATE product_stores
          SET woo_product_id = $1, status = 'synced', updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [wooProduct.id, product.id]
+         WHERE product_id = $2 AND store_id = $3`,
+        [wooProduct.id, product.id, store_id]
       )
 
       // ✅ STEP 2: Add Attributes to Variable Product (if it has variations)
@@ -399,13 +405,12 @@ export async function POST(request, { params }) {
           let attrResult = await db.query(
             `SELECT pv.attributes, pv.size, pv.color
              FROM product_variations pv
-             INNER JOIN products p ON pv.product_id = p.id
-             WHERE TRIM(pv.parent_sku) = TRIM($1) AND p.store_id = $2
+             WHERE TRIM(pv.parent_sku) = TRIM($1)
              UNION
              SELECT pv.attributes, pv.size, pv.color
              FROM product_variations pv
-             WHERE pv.product_id = $3`,
-            [product.sku, store_id, productId]
+             WHERE pv.product_id = $2`,
+            [product.sku, productId]
           )
           allVariationsForAttributes = attrResult.rows
         } else {

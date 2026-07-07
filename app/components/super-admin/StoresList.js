@@ -89,6 +89,7 @@ export default function StoresList({ stores }) {
                 <TableHead>Name</TableHead>
                 <TableHead>Store URL</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Connection</TableHead>
                 <TableHead>Last Sync</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -109,6 +110,11 @@ export default function StoresList({ stores }) {
                     </a>
                   </TableCell>
                   <TableCell>{getStatusBadge(store.status)}</TableCell>
+                  <TableCell>
+                    <Badge variant={store.connection_method === 'plugin' ? 'secondary' : 'default'}>
+                      {store.connection_method === 'plugin' ? 'WordPress Plugin' : 'REST API'}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {formatDate(store.last_sync_at)}
                   </TableCell>

@@ -54,8 +54,43 @@ export default function SyncManagement({ storeId, store, approvedProductsCount, 
       }
 
       setSuccess(`Sync started successfully! Sync ID: ${data.syncId}`)
-      
+
       // Refresh page after a delay to show the new sync log
+      setTimeout(() => {
+        router.refresh()
+      }, 2000)
+    } catch (err) {
+      setError(err.message)
+      setLoading(false)
+    }
+  }
+
+  const handleTriggerImport = async () => {
+    setLoading(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const response = await fetch(`/api/stores/${storeId}/trigger-import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_resync: false }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to trigger import')
+      }
+
+      const progress = data.progress || {}
+      setSuccess(
+        `Import triggered! ${progress.created ?? 0} created, ${progress.updated ?? 0} updated, ` +
+        `${data.syncedCount ?? 0} marked synced` +
+        (progress.status === 'running' ? ' (large catalog - remaining pages continue via the plugin\'s schedule).' : '.')
+      )
+      setLoading(false)
+
       setTimeout(() => {
         router.refresh()
       }, 2000)
@@ -88,15 +123,37 @@ export default function SyncManagement({ storeId, store, approvedProductsCount, 
             Last sync: {store.last_sync_at ? formatDate(store.last_sync_at) : 'Never'}
           </p>
         </div>
-        <button
-          onClick={() => handleSync('products')}
-          disabled={loading || approvedProductsCount === 0}
-          className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? 'Starting Sync...' : `Sync ${approvedProductsCount} Products`}
-        </button>
-        {approvedProductsCount === 0 && (
-          <p className="text-sm text-gray-500 mt-2">No approved products to sync. Please approve products first.</p>
+        {store.connection_method === 'plugin' ? (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              This store uses the <strong>WooApp Connector</strong> WordPress plugin, which pulls
+              approved products itself - WooApp doesn't push to it. Trigger a pull now, or leave it
+              to wp-admin → WooApp Connector → Import Now (or its own schedule).
+            </p>
+            <button
+              onClick={handleTriggerImport}
+              disabled={loading || approvedProductsCount === 0}
+              className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Triggering...' : `Trigger Import Now (${approvedProductsCount} approved)`}
+            </button>
+            {approvedProductsCount === 0 && (
+              <p className="text-sm text-gray-500">No approved products to pull in. Please approve products first.</p>
+            )}
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => handleSync('products')}
+              disabled={loading || approvedProductsCount === 0}
+              className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Starting Sync...' : `Sync ${approvedProductsCount} Products`}
+            </button>
+            {approvedProductsCount === 0 && (
+              <p className="text-sm text-gray-500 mt-2">No approved products to sync. Please approve products first.</p>
+            )}
+          </>
         )}
       </div>
 

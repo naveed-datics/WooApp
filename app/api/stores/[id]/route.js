@@ -8,7 +8,7 @@ export async function GET(request, { params }) {
     const { id } = await params
     
     const result = await db.query(
-      'SELECT id, name, store_url, consumer_key, consumer_secret, status FROM stores WHERE id = $1',
+      'SELECT id, name, store_url, consumer_key, consumer_secret, status, export_api_key, connection_method FROM stores WHERE id = $1',
       [id]
     )
     
@@ -35,20 +35,37 @@ export async function PUT(request, { params }) {
     
     const body = await request.json()
     const { name, store_url, consumer_key, consumer_secret, status } = body
+    const connectionMethod = body.connection_method === 'plugin' ? 'plugin' : 'api'
 
-    if (!name || !store_url || !consumer_key || !consumer_secret) {
+    if (!name || !store_url) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       )
     }
 
+    if (connectionMethod === 'api' && (!consumer_key || !consumer_secret)) {
+      return NextResponse.json(
+        { error: 'Consumer Key and Consumer Secret are required for the REST API connection method' },
+        { status: 400 }
+      )
+    }
+
     const result = await db.query(
-      `UPDATE stores 
-       SET name = $1, store_url = $2, consumer_key = $3, consumer_secret = $4, status = $5, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6
-       RETURNING id, name, store_url, status, updated_at`,
-      [name, store_url, consumer_key, consumer_secret, status || 'active', id]
+      `UPDATE stores
+       SET name = $1, store_url = $2, consumer_key = $3, consumer_secret = $4, status = $5,
+           connection_method = $6, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $7
+       RETURNING id, name, store_url, status, connection_method, updated_at`,
+      [
+        name,
+        store_url,
+        connectionMethod === 'api' ? consumer_key : (consumer_key || null),
+        connectionMethod === 'api' ? consumer_secret : (consumer_secret || null),
+        status || 'active',
+        connectionMethod,
+        id,
+      ]
     )
 
     if (result.rows.length === 0) {
