@@ -48,6 +48,7 @@ function serializeProduct(row, variations) {
     tags: splitList(row.tags),
     images: splitList(row.images),
     brand: row.brand || null,
+    vendor: row.vendor_name || null,
     status: row.status,
     woo_product_id: row.woo_product_id,
     updated_at: row.updated_at,
@@ -61,8 +62,11 @@ function serializeProduct(row, variations) {
  * GET /api/export/products?store_id=1&limit=200&offset=0&updated_since=2026-07-01T00:00:00Z
  * Header: x-api-key: <store's export_api_key>
  *
- * Only products with status 'approved' or 'synced' are returned - anything
- * still 'pending' review in WooApp is intentionally withheld.
+ * Only globally 'approved' products are returned - anything still 'pending'
+ * review in WooApp is intentionally withheld. Approval is global (not
+ * per-store): every authenticated store receives the same catalog.
+ * `product_stores` is consulted only to attach this store's own
+ * `woo_product_id`, which is per-store sync bookkeeping, not a gate.
  */
 export async function GET(request) {
   try {
@@ -80,15 +84,12 @@ export async function GET(request) {
     const offset = parseInt(searchParams.get('offset') || '0', 10) || 0
     const updatedSince = searchParams.get('updated_since')
 
-    const conditions = [`ps.store_id = $1`, `ps.status IN ('approved', 'synced')`]
-    const params = [auth.store.id]
+    const conditions = [`p.status = 'approved'`]
+    const params = []
 
     if (updatedSince) {
       params.push(updatedSince)
-      // A product can become newly exportable for this store (approved/
-      // synced) without its own catalog data changing, so an incremental
-      // pull needs to catch either kind of change.
-      conditions.push(`GREATEST(p.updated_at, ps.updated_at) >= $${params.length}`)
+      conditions.push(`p.updated_at >= $${params.length}`)
     }
 
     const whereClause = conditions.join(' AND ')
@@ -96,19 +97,21 @@ export async function GET(request) {
     const totalResult = await db.query(
       `SELECT COUNT(*) AS total
        FROM products p
-       INNER JOIN product_stores ps ON ps.product_id = p.id
+       INNER JOIN vendor_stores vs ON vs.vendor_id = p.vendor_id AND vs.store_id = $${params.length + 1}
        WHERE ${whereClause}`,
-      params
+      [...params, auth.store.id]
     )
     const total = parseInt(totalResult.rows[0].total, 10)
 
     const productsResult = await db.query(
-      `SELECT p.*, ps.status, ps.woo_product_id
+      `SELECT p.*, ps.woo_product_id, v.name AS vendor_name
        FROM products p
-       INNER JOIN product_stores ps ON ps.product_id = p.id
+       LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $${params.length + 1}
+       LEFT JOIN vendors v ON v.id = p.vendor_id
+       INNER JOIN vendor_stores vs ON vs.vendor_id = p.vendor_id AND vs.store_id = $${params.length + 1}
        WHERE ${whereClause}
-       ORDER BY p.id ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, limit, offset]
+       ORDER BY p.id ASC LIMIT $${params.length + 2} OFFSET $${params.length + 3}`,
+      [...params, auth.store.id, limit, offset]
     )
 
     const productIds = productsResult.rows.map((p) => p.id)

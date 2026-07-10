@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import db from '../../../lib/db'
 import { auth } from '../../auth/[...nextauth]/route'
+import { requireSuperAdminApi } from '../../../lib/role-guards'
 
 export const maxDuration = 10
 export const runtime = 'nodejs'
@@ -8,12 +9,13 @@ export const runtime = 'nodejs'
 export async function POST(request) {
   try {
     const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const roleCheck = requireSuperAdminApi(session)
+    if (!roleCheck.ok) {
+      return NextResponse.json({ error: roleCheck.error }, { status: roleCheck.status })
     }
 
     const body = await request.json()
-    const { storeId, vendorId, fileType, fileName, totalRows } = body
+    const { storeId, vendorId, fileType, fileName, totalRows, totalChunks } = body
 
     if (!storeId || !vendorId || !fileType || !fileName || !totalRows) {
       return NextResponse.json(
@@ -22,27 +24,17 @@ export async function POST(request) {
       )
     }
 
-    // Check if admin has access to this store
-    if (session.user.role !== 'super_admin') {
-      const accessCheck = await db.query(
-        'SELECT id FROM admin_stores WHERE user_id = $1 AND store_id = $2',
-        [session.user.id, storeId]
-      )
-
-      if (accessCheck.rows.length === 0) {
-        return NextResponse.json(
-          { error: 'Unauthorized access to this store' },
-          { status: 403 }
-        )
-      }
-    }
+    const chunks = totalChunks || Math.ceil(totalRows / 100)
 
     // Create CSV upload record
     const uploadResult = await db.query(
-      `INSERT INTO csv_uploads (store_id, vendor_id, uploaded_by, file_type, file_name, row_count, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'processing')
+      `INSERT INTO csv_uploads (
+         store_id, vendor_id, uploaded_by, file_type, file_name,
+         row_count, expected_row_count, total_chunks, status
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'processing')
        RETURNING id`,
-      [storeId, vendorId, session.user.id, fileType, fileName, totalRows]
+      [storeId, vendorId, session.user.id, fileType, fileName, totalRows, chunks]
     )
 
     const csvUploadId = uploadResult.rows[0].id

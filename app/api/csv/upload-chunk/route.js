@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import db from '../../../lib/db'
 import { validateProductRow, validateVariationRow, parseProductRow, parseVariationRow } from '../../../lib/csv-parser'
+import { createVendorCache, resolveVendorId } from '../../../lib/vendor-resolver'
 import { auth } from '../../auth/[...nextauth]/route'
+import { requireSuperAdminApi } from '../../../lib/role-guards'
 
 // Vercel serverless function configuration
 export const maxDuration = 60
@@ -10,8 +12,9 @@ export const runtime = 'nodejs'
 export async function POST(request) {
   try {
     const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const roleCheck = requireSuperAdminApi(session)
+    if (!roleCheck.ok) {
+      return NextResponse.json({ error: roleCheck.error }, { status: roleCheck.status })
     }
 
     const body = await request.json()
@@ -35,7 +38,8 @@ export async function POST(request) {
 
     // Verify CSV upload exists and user has access
     const uploadCheck = await db.query(
-      `SELECT cu.id, cu.store_id, cu.vendor_id 
+      `SELECT cu.id, cu.store_id, cu.vendor_id, cu.status,
+              cu.last_chunk_index, cu.processed_row_count
        FROM csv_uploads cu
        WHERE cu.id = $1`,
       [csvUploadId]
@@ -48,23 +52,39 @@ export async function POST(request) {
       )
     }
 
-    // Check if admin has access to this store
-    if (session.user.role !== 'super_admin') {
-      const accessCheck = await db.query(
-        'SELECT id FROM admin_stores WHERE user_id = $1 AND store_id = $2',
-        [session.user.id, storeId]
-      )
+    const uploadRecord = uploadCheck.rows[0]
 
-      if (accessCheck.rows.length === 0) {
-        return NextResponse.json(
-          { error: 'Unauthorized access to this store' },
-          { status: 403 }
-        )
-      }
+    if (uploadRecord.status === 'completed') {
+      return NextResponse.json({
+        success: true,
+        chunkIndex,
+        processedCount: 0,
+        errorCount: 0,
+        errors: [],
+        isLastChunk: true,
+        skipped: true,
+        message: 'Upload already completed',
+      })
+    }
+
+    const lastCompleted = uploadRecord.last_chunk_index ?? -1
+    if (typeof chunkIndex === 'number' && chunkIndex <= lastCompleted) {
+      return NextResponse.json({
+        success: true,
+        chunkIndex,
+        processedCount: 0,
+        errorCount: 0,
+        errors: [],
+        isLastChunk: chunkIndex === totalChunks - 1,
+        skipped: true,
+        message: 'Chunk already processed',
+      })
     }
 
     let processedCount = 0
     const errorMessages = []
+    const vendorCache = createVendorCache()
+    const defaultVendorId = parseInt(vendorId, 10)
 
     try {
       if (fileType === 'products') {
@@ -81,6 +101,12 @@ export async function POST(request) {
             }
 
             const productData = parseProductRow(row)
+            const resolvedVendorId = await resolveVendorId({
+              row,
+              defaultVendorId,
+              vendorCache,
+              db,
+            })
             const existing = await db.query(
               'SELECT id FROM products WHERE sku = $1 LIMIT 1',
               [productData.sku]
@@ -91,13 +117,14 @@ export async function POST(request) {
               productId = existing.rows[0].id
               await db.query(
                 `UPDATE products SET
-                  csv_upload_id = $1, name = $2, description = $3, short_description = $4,
-                  price = $5, regular_price = $6, sale_price = $7, stock_quantity = $8,
-                  manage_stock = $9, stock_status = $10, categories = $11, tags = $12,
-                  images = $13, attributes = $14, brand = $15, updated_at = NOW()
-                 WHERE id = $16`,
+                  csv_upload_id = $1, vendor_id = $2, name = $3, description = $4, short_description = $5,
+                  price = $6, regular_price = $7, sale_price = $8, stock_quantity = $9,
+                  manage_stock = $10, stock_status = $11, categories = $12, tags = $13,
+                  images = $14, attributes = $15, brand = $16, updated_at = NOW()
+                 WHERE id = $17`,
                 [
                   csvUploadId,
+                  resolvedVendorId,
                   productData.name,
                   productData.description,
                   productData.short_description,
@@ -115,22 +142,17 @@ export async function POST(request) {
                   productId,
                 ]
               )
-              await db.query(
-                `INSERT INTO product_stores (product_id, store_id, status)
-                 VALUES ($1, $2, 'pending')
-                 ON CONFLICT (product_id, store_id) DO NOTHING`,
-                [productId, storeId]
-              )
             } else {
               const inserted = await db.query(
                 `INSERT INTO products (
-                  csv_upload_id, sku, name, description, short_description,
+                  csv_upload_id, vendor_id, sku, name, description, short_description,
                   price, regular_price, sale_price, stock_quantity, manage_stock,
                   stock_status, categories, tags, images, attributes, brand
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                 RETURNING id`,
                 [
                   csvUploadId,
+                  resolvedVendorId,
                   productData.sku,
                   productData.name,
                   productData.description,
@@ -149,12 +171,9 @@ export async function POST(request) {
                 ]
               )
               productId = inserted.rows[0].id
-              await db.query(
-                `INSERT INTO product_stores (product_id, store_id, status)
-                 SELECT $1, id, 'pending' FROM stores WHERE status = 'active'
-                 ON CONFLICT (product_id, store_id) DO NOTHING`,
-                [productId]
-              )
+              // New product starts globally 'pending' (products.status column
+              // default) - approval is global, not per-store, so no
+              // product_stores linking is needed here (see export/products/route.js).
             }
             processedCount++
           } catch (rowError) {
@@ -261,25 +280,25 @@ export async function POST(request) {
 
       // Update CSV upload record with progress
       const errorText = errorMessages.length > 0 ? errorMessages.slice(0, 50).join('\n') : null
-      
+
       if (errorText) {
-        // If there are errors, append to existing error message
         await db.query(
-          `UPDATE csv_uploads 
-           SET row_count = row_count + $1, 
-               error_message = COALESCE(error_message || '\n' || $2::text, $2::text),
+          `UPDATE csv_uploads
+           SET processed_row_count = COALESCE(processed_row_count, 0) + $1,
+               last_chunk_index = GREATEST(COALESCE(last_chunk_index, -1), $2),
+               error_message = COALESCE(error_message || '\n' || $3::text, $3::text),
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $3`,
-          [processedCount, errorText, csvUploadId]
+           WHERE id = $4`,
+          [processedCount, chunkIndex, errorText, csvUploadId]
         )
       } else {
-        // If no errors, just update row count
         await db.query(
-          `UPDATE csv_uploads 
-           SET row_count = row_count + $1, 
+          `UPDATE csv_uploads
+           SET processed_row_count = COALESCE(processed_row_count, 0) + $1,
+               last_chunk_index = GREATEST(COALESCE(last_chunk_index, -1), $2),
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $2`,
-          [processedCount, csvUploadId]
+           WHERE id = $3`,
+          [processedCount, chunkIndex, csvUploadId]
         )
       }
 

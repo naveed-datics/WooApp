@@ -14,8 +14,9 @@ import {
 import { Button } from '@/app/components/ui/button'
 import { Badge } from '@/app/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/app/components/ui/card'
-import { Store, Edit, Trash2, ExternalLink } from 'lucide-react'
+import { Store, Edit, Trash2, ExternalLink, Upload, Layers } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { formatDateTime } from '@/app/lib/format-date'
 
 export default function StoresList({ stores }) {
   const queryClient = useQueryClient()
@@ -29,10 +30,7 @@ export default function StoresList({ stores }) {
     },
   })
 
-  const formatDate = (date) => {
-    if (!date) return 'Never'
-    return new Date(date).toLocaleString()
-  }
+  const formatDate = formatDateTime
 
   const getStatusBadge = (status) => {
     const variants = {
@@ -120,6 +118,26 @@ export default function StoresList({ stores }) {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end space-x-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                      >
+                        <Link href={`/admin/store/${store.id}/import?type=products`}>
+                          <Upload className="h-4 w-4 mr-1" />
+                          Products
+                        </Link>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                      >
+                        <Link href={`/admin/store/${store.id}/import?type=variations`}>
+                          <Layers className="h-4 w-4 mr-1" />
+                          Variations
+                        </Link>
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import db from '../../../../../lib/db'
 import { auth } from '../../../../auth/[...nextauth]/route'
+import { requireSuperAdminApi } from '../../../../../lib/role-guards'
 
 export const maxDuration = 10
 export const runtime = 'nodejs'
@@ -8,8 +9,9 @@ export const runtime = 'nodejs'
 export async function POST(request, { params }) {
   try {
     const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const roleCheck = requireSuperAdminApi(session)
+    if (!roleCheck.ok) {
+      return NextResponse.json({ error: roleCheck.error }, { status: roleCheck.status })
     }
 
     const { id } = await params

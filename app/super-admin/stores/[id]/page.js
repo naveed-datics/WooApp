@@ -2,6 +2,7 @@ import { requireSuperAdmin } from '../../../lib/auth'
 import db from '../../../lib/db'
 import StoreForm from '../../../components/super-admin/StoreForm'
 import ExportApiKeyCard from '../../../components/super-admin/ExportApiKeyCard'
+import Link from 'next/link'
 import { Button } from '@/app/components/ui/button'
 import {
   Card,
@@ -42,7 +43,20 @@ export default async function EditStorePage({ params }) {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <h1 className="text-3xl font-bold">Edit Store</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Edit Store</h1>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild>
+            <Link href={`/admin/store/${store.id}/import?type=products`}>Upload Products</Link>
+          </Button>
+          <Button variant="secondary" asChild>
+            <Link href={`/admin/store/${store.id}/import?type=variations`}>Upload Variations</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href={`/admin/store/${store.id}/products`}>Review Products</Link>
+          </Button>
+        </div>
+      </div>
       <StoreForm store={store} />
       <ExportApiKeyCard storeId={store.id} initialApiKey={store.export_api_key} />
     </div>

@@ -18,15 +18,12 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'store_id is required' }, { status: 400 })
     }
 
-    // A product_stores row is the real access boundary now - it tells us
-    // this store's catalog actually includes this product at all.
-    const productStoreCheck = await db.query(
-      'SELECT id FROM product_stores WHERE product_id = $1 AND store_id = $2',
-      [productId, storeId]
-    )
+    // Product approval is global (see export/products/route.js), so the
+    // access boundary is simply whether the product exists at all.
+    const productCheck = await db.query('SELECT id FROM products WHERE id = $1', [productId])
 
-    if (productStoreCheck.rows.length === 0) {
-      return NextResponse.json({ error: 'Product not found for this store' }, { status: 404 })
+    if (productCheck.rows.length === 0) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 })
     }
 
     // Check if admin has access to this store

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatDateTime } from '@/app/lib/format-date'
 
 export default function SyncManagement({ storeId, store, approvedProductsCount, syncLogs }) {
   const router = useRouter()
@@ -25,7 +26,7 @@ export default function SyncManagement({ storeId, store, approvedProductsCount, 
 
   const formatDate = (date) => {
     if (!date) return '-'
-    return new Date(date).toLocaleString()
+    return formatDateTime(date)
   }
 
   const handleSync = async (syncType) => {

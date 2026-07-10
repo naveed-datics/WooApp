@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { Store, Users, Package, LayoutDashboard, LogOut, ShoppingBag, Upload, RefreshCw } from 'lucide-react'
+import { Store, Users, Package, LayoutDashboard, LogOut, ShoppingBag, Upload, RefreshCw, Layers } from 'lucide-react'
 import { cn } from '@/app/lib/utils'
 
 export default function Sidebar({ user, storeId = null }) {
@@ -32,6 +32,10 @@ export default function Sidebar({ user, storeId = null }) {
   const isSuperAdmin = user.role === 'super_admin'
   const isAdmin = user.role === 'admin'
 
+  const pathnameStoreMatch = pathname?.match(/^\/admin\/store\/(\d+)/)
+  const pathnameStoreId = pathnameStoreMatch ? parseInt(pathnameStoreMatch[1], 10) : null
+  const effectiveStoreId = storeId || pathnameStoreId
+
   const baseNavigationItems = [
     {
       name: 'Dashboard',
@@ -43,6 +47,12 @@ export default function Sidebar({ user, storeId = null }) {
       name: 'Stores',
       href: '/super-admin/stores',
       icon: Store,
+      roles: ['super_admin'],
+    },
+    {
+      name: 'Upload Catalog',
+      href: '/super-admin/upload',
+      icon: Upload,
       roles: ['super_admin'],
     },
     {
@@ -66,11 +76,6 @@ export default function Sidebar({ user, storeId = null }) {
       icon: LayoutDashboard,
     },
     {
-      name: 'Import CSV',
-      href: `/admin/store/${storeId}/import`,
-      icon: Upload,
-    },
-    {
       name: 'Products',
       href: `/admin/store/${storeId}/products`,
       icon: ShoppingBag,
@@ -82,9 +87,32 @@ export default function Sidebar({ user, storeId = null }) {
     },
   ] : []
 
-  const navigationItems = isAdmin && storeId 
+  const superAdminStoreItems = isSuperAdmin && effectiveStoreId ? [
+    {
+      name: 'Upload Products',
+      href: `/admin/store/${effectiveStoreId}/import?type=products`,
+      icon: Upload,
+    },
+    {
+      name: 'Upload Variations',
+      href: `/admin/store/${effectiveStoreId}/import?type=variations`,
+      icon: Layers,
+    },
+    {
+      name: 'Review Products',
+      href: `/admin/store/${effectiveStoreId}/products`,
+      icon: ShoppingBag,
+    },
+  ] : []
+
+  const navigationItems = isAdmin && storeId
     ? [...baseNavigationItems.filter(item => item.name === 'Dashboard'), ...adminStoreItems]
-    : baseNavigationItems.filter(item => item.roles.includes(user.role))
+    : isSuperAdmin
+      ? [
+          ...baseNavigationItems.filter(item => item.roles.includes(user.role)),
+          ...superAdminStoreItems,
+        ]
+      : baseNavigationItems.filter(item => item.roles.includes(user.role))
 
   return (
     <div className="flex h-screen w-64 flex-col bg-white border-r border-gray-200">

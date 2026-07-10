@@ -2,43 +2,40 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '../../../../lib/auth'
 import db from '../../../../lib/db'
 import { auth } from '../../../auth/[...nextauth]/route'
+import { requireSuperAdminApi } from '../../../../lib/role-guards'
 
 export async function PUT(request, { params }) {
   try {
     const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const roleCheck = requireSuperAdminApi(session)
+    if (!roleCheck.ok) {
+      return NextResponse.json({ error: roleCheck.error }, { status: roleCheck.status })
     }
 
     const { id } = await params
     const body = await request.json()
-    const { status, store_id: storeId } = body
+    const { status } = body
 
-    if (!storeId) {
-      return NextResponse.json(
-        { error: 'store_id is required' },
-        { status: 400 }
-      )
-    }
-
-    if (!['pending', 'approved', 'rejected', 'synced'].includes(status)) {
+    if (!['pending', 'approved', 'rejected'].includes(status)) {
       return NextResponse.json(
         { error: 'Invalid status' },
         { status: 400 }
       )
     }
 
+    // Approval is global, not per-store (see export/products/route.js) -
+    // product_stores is now used purely for per-store sync bookkeeping.
     const result = await db.query(
-      `UPDATE product_stores
+      `UPDATE products
        SET status = $1, reviewed_by = $2, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE product_id = $3 AND store_id = $4
+       WHERE id = $3
        RETURNING *`,
-      [status, session.user.id, id, storeId]
+      [status, session.user.id, id]
     )
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Product not found for this store' },
+        { error: 'Product not found' },
         { status: 404 }
       )
     }

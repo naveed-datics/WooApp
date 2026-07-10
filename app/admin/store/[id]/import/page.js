@@ -1,24 +1,15 @@
-import { requireAdmin } from '../../../../lib/auth'
+import { requireSuperAdmin } from '../../../../lib/auth'
 import db from '../../../../lib/db'
 import { redirect } from 'next/navigation'
 import CSVUploader from '../../../../components/csv-uploader'
 
-export default async function ImportPage({ params }) {
-  const session = await requireAdmin()
+export default async function ImportPage({ params, searchParams }) {
+  await requireSuperAdmin()
   const { id } = await params
+  const resolvedSearchParams = await searchParams
   const storeId = parseInt(id)
-
-  // Check if admin has access to this store
-  if (session.user.role !== 'super_admin') {
-    const accessCheck = await db.query(
-      'SELECT id FROM admin_stores WHERE user_id = $1 AND store_id = $2',
-      [session.user.id, storeId]
-    )
-
-    if (accessCheck.rows.length === 0) {
-      redirect('/unauthorized')
-    }
-  }
+  const fileType =
+    resolvedSearchParams?.type === 'variations' ? 'variations' : 'products'
 
   // Get store info
   const storeResult = await db.query(
@@ -43,10 +34,16 @@ export default async function ImportPage({ params }) {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Import CSV</h1>
+        <h1 className="text-3xl font-bold text-gray-900">
+          {fileType === 'variations' ? 'Import Variations' : 'Import Products'}
+        </h1>
         <p className="text-gray-600 mt-1">Store: {store.name}</p>
       </div>
-      <CSVUploader storeId={storeId} vendors={vendorsResult.rows} />
+      <CSVUploader
+        storeId={storeId}
+        vendors={vendorsResult.rows}
+        defaultFileType={fileType}
+      />
     </div>
   )
 }

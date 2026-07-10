@@ -6,6 +6,7 @@ export default async function StoreDashboardPage({ params }) {
   const session = await requireAdmin()
   const { id } = await params
   const storeId = parseInt(id)
+  const isStoreAdmin = session.user.role === 'admin'
 
   // Check if admin has access to this store
   if (session.user.role !== 'super_admin') {
@@ -38,12 +39,10 @@ export default async function StoreDashboardPage({ params }) {
 
   const store = storeResult.rows[0]
 
-  // Get stats
+  // Get stats. Product approval is global (see export/products/route.js),
+  // so the catalog size is the same for every store.
   const [productsResult, ordersResult, csvUploadsResult] = await Promise.all([
-    db.query(
-      'SELECT COUNT(*) as count FROM product_stores WHERE store_id = $1',
-      [storeId]
-    ),
+    db.query('SELECT COUNT(*) as count FROM products'),
     db.query(
       'SELECT COUNT(*) as count FROM orders WHERE store_id = $1',
       [storeId]
@@ -83,19 +82,34 @@ export default async function StoreDashboardPage({ params }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <a
-          href={`/admin/store/${storeId}/import`}
-          className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow"
-        >
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Import CSV</h3>
-          <p className="text-gray-600 text-sm">Upload product and variation CSV files</p>
-        </a>
+        {!isStoreAdmin && (
+          <>
+            <a
+              href={`/admin/store/${storeId}/import?type=products`}
+              className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow"
+            >
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Upload Products</h3>
+              <p className="text-gray-600 text-sm">Import parent product rows from CSV</p>
+            </a>
+            <a
+              href={`/admin/store/${storeId}/import?type=variations`}
+              className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow"
+            >
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Upload Variations</h3>
+              <p className="text-gray-600 text-sm">Import variant rows linked by parent SKU</p>
+            </a>
+          </>
+        )}
         <a
           href={`/admin/store/${storeId}/products`}
           className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow"
         >
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Review Products</h3>
-          <p className="text-gray-600 text-sm">Review and approve pending products</p>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">
+            {isStoreAdmin ? 'Products' : 'Review Products'}
+          </h3>
+          <p className="text-gray-600 text-sm">
+            {isStoreAdmin ? 'View products assigned to this store' : 'Review and approve pending products'}
+          </p>
         </a>
         <a
           href={`/admin/store/${storeId}/sync`}

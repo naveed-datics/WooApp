@@ -2,14 +2,16 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '../../../../lib/auth'
 import db from '../../../../lib/db'
 import { auth } from '../../../auth/[...nextauth]/route'
+import { requireStoreAdminApi, verifyAdminStoreAccess } from '../../../../lib/role-guards'
 
 const WooCommerceClient = require('../../../../lib/woocommerce')
 
 export async function POST(request, { params }) {
   try {
     const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const roleCheck = requireStoreAdminApi(session)
+    if (!roleCheck.ok) {
+      return NextResponse.json({ error: roleCheck.error }, { status: roleCheck.status })
     }
 
     const { id } = await params
@@ -22,28 +24,20 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: 'Store ID is required' }, { status: 400 })
     }
 
-    // Check if admin has access to this store
-    if (session.user.role !== 'super_admin') {
-      const accessCheck = await db.query(
-        'SELECT id FROM admin_stores WHERE user_id = $1 AND store_id = $2',
-        [session.user.id, store_id]
-      )
-
-      if (accessCheck.rows.length === 0) {
-        return NextResponse.json(
-          { error: 'Unauthorized access to this store' },
-          { status: 403 }
-        )
-      }
+    const hasAccess = await verifyAdminStoreAccess(db, session.user.id, store_id)
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Unauthorized access to this store' }, { status: 403 })
     }
 
-    // Get product
+    // Get product (approval is global - see export/products/route.js;
+    // product_stores is consulted only for this store's existing woo_product_id)
     const productResult = await db.query(
       `SELECT p.id, p.sku, p.name, p.description, p.short_description, p.price, p.regular_price,
               p.sale_price, p.stock_quantity, p.manage_stock, p.stock_status, p.categories, p.tags, p.images,
-              p.attributes, ps.woo_product_id, ps.status
+              p.attributes, ps.woo_product_id, p.status
        FROM products p
-       INNER JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $2
+       INNER JOIN vendor_stores vs ON vs.vendor_id = p.vendor_id AND vs.store_id = $2
+       LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $2
        WHERE p.id = $1`,
       [productId, store_id]
     )
@@ -387,12 +381,14 @@ export async function POST(request, { params }) {
         wooProduct = await wooClient.createProduct(wooProductData)
       }
 
-      // Update product in database (per-store sync state)
+      // Update product in database (per-store sync state - upsert since a
+      // brand-new store has no pre-existing product_stores row yet)
       await db.query(
-        `UPDATE product_stores
-         SET woo_product_id = $1, status = 'synced', updated_at = CURRENT_TIMESTAMP
-         WHERE product_id = $2 AND store_id = $3`,
-        [wooProduct.id, product.id, store_id]
+        `INSERT INTO product_stores (product_id, store_id, woo_product_id, status)
+         VALUES ($1, $2, $3, 'synced')
+         ON CONFLICT (product_id, store_id)
+         DO UPDATE SET woo_product_id = $3, status = 'synced', updated_at = CURRENT_TIMESTAMP`,
+        [product.id, store_id, wooProduct.id]
       )
 
       // ✅ STEP 2: Add Attributes to Variable Product (if it has variations)

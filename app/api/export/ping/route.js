@@ -7,6 +7,9 @@ import db from '../../../lib/db'
  * Connector" plugin's "Test Connection" button. Verifies the store_id +
  * x-api-key pair is valid and reports how many products are currently
  * available to import, without transferring the full product payload.
+ *
+ * Product approval is global (not per-store - see export/products/route.js),
+ * so these counts reflect the whole catalog, the same for every store.
  */
 export async function GET(request) {
   try {
@@ -18,11 +21,9 @@ export async function GET(request) {
 
     const counts = await db.query(
       `SELECT
-        COUNT(*) FILTER (WHERE status IN ('approved', 'synced')) AS exportable_products,
+        COUNT(*) FILTER (WHERE status = 'approved') AS exportable_products,
         COUNT(*) AS total_products
-       FROM product_stores
-       WHERE store_id = $1`,
-      [auth.store.id]
+       FROM products`
     )
 
     return NextResponse.json({

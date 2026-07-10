@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS csv_uploads (
   file_name VARCHAR(255) NOT NULL,
   file_path VARCHAR(500),
   row_count INTEGER DEFAULT 0,
+  expected_row_count INTEGER,
+  processed_row_count INTEGER DEFAULT 0,
+  last_chunk_index INTEGER DEFAULT -1,
+  total_chunks INTEGER,
   status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
   error_message TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -71,6 +75,7 @@ CREATE TABLE IF NOT EXISTS csv_uploads (
 CREATE TABLE IF NOT EXISTS products (
   id SERIAL PRIMARY KEY,
   csv_upload_id INTEGER NOT NULL REFERENCES csv_uploads(id) ON DELETE CASCADE,
+  vendor_id INTEGER NOT NULL REFERENCES vendors(id) ON DELETE RESTRICT,
   store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
   sku VARCHAR(255),
   name VARCHAR(500) NOT NULL,

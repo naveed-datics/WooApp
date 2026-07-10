@@ -2,11 +2,16 @@ import { requireAdmin } from '../../../../lib/auth'
 import db from '../../../../lib/db'
 import { redirect } from 'next/navigation'
 import SyncManagement from '../../../../components/sync-management'
+import { VENDOR_STORE_JOIN } from '../../../../lib/vendor-store-filter'
 
 export default async function SyncPage({ params }) {
   const session = await requireAdmin()
   const { id } = await params
   const storeId = parseInt(id)
+
+  if (session.user.role === 'super_admin') {
+    redirect('/super-admin/stores')
+  }
 
   // Check if admin has access to this store
   if (session.user.role !== 'super_admin') {
@@ -32,9 +37,12 @@ export default async function SyncPage({ params }) {
 
   const store = storeResult.rows[0]
 
-  // Get approved products count
+  // Get approved products count (approval is global - see export/products/route.js)
   const productsResult = await db.query(
-    "SELECT COUNT(*) as count FROM product_stores WHERE store_id = $1 AND status = 'approved'",
+    `SELECT COUNT(*) as count
+     FROM products p
+     ${VENDOR_STORE_JOIN}
+     WHERE p.status = 'approved'`,
     [storeId]
   )
 

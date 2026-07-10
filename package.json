@@ -10,7 +10,9 @@
     "init-db": "node scripts/init-database.js",
     "migrate:export": "node scripts/add-export-integration.js",
     "migrate:connection-method": "node scripts/add-connection-method.js",
-    "migrate:product-stores": "node scripts/migrate-product-store-links.js"
+    "migrate:product-stores": "node scripts/migrate-product-store-links.js",
+    "migrate:product-vendor": "node scripts/add-product-vendor.js",
+    "migrate:upload-resume": "node scripts/add-upload-resume.js"
   },
   "keywords": [],
   "author": "",

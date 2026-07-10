@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
-export default function ProductReview({ storeId, connectionMethod, products, status, currentPage, totalPages, total, limit = 50, search = '', approvedProductsCount = 0 }) {
+export default function ProductReview({ storeId, connectionMethod, products, status, currentPage, totalPages, total, limit = 50, search = '', approvedProductsCount = 0, canApprove = true, canSync = true }) {
   const isPluginStore = connectionMethod === 'plugin'
   const router = useRouter()
   const [loading, setLoading] = useState(null)
@@ -341,7 +341,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
             Synced
           </Link>
         </div>
-        {status === 'pending' && (
+        {status === 'pending' && canApprove && (
           <div className="flex space-x-2">
             <button
               onClick={() => handleBulkAction('approve')}
@@ -396,7 +396,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
         </form>
         
         {/* Sync All Button */}
-        {approvedProductsCount > 0 && (
+        {approvedProductsCount > 0 && canSync && (
           isPluginStore ? (
             <button
               onClick={handleTriggerImport}
@@ -434,6 +434,9 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                 Name
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Vendor
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Variants
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -447,7 +450,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
           <tbody className="bg-white divide-y divide-gray-200">
             {products.length === 0 ? (
               <tr>
-                <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
+                <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
                   No products found.
                 </td>
               </tr>
@@ -470,6 +473,9 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                         >
                           {product.name}
                         </Link>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.vendor_name || '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {variantCount > 0 ? (
@@ -496,7 +502,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center gap-2">
-                          {product.status === 'pending' && (
+                          {product.status === 'pending' && canApprove && (
                             <>
                               <button
                                 onClick={() => handleStatusChange(product.id, 'approved')}
@@ -514,7 +520,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                               </button>
                             </>
                           )}
-                          {product.status === 'approved' && (
+                          {product.status === 'approved' && canSync && (
                             isPluginStore ? (
                               <span className="text-gray-500 text-xs italic">Pulled by plugin</span>
                             ) : (

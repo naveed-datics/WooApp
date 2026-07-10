@@ -96,16 +96,17 @@ export async function POST(request, { params }) {
     await db.query('UPDATE stores SET last_sync_at = CURRENT_TIMESTAMP WHERE id = $1', [storeId])
 
     // WordPress reports back exactly which SKUs it created/updated this
-    // run - mark only those as synced. A product can still legitimately
-    // show 'approved' after this if it was already synced in an earlier
-    // run and fell outside this run's incremental window.
+    // run - mark only those as synced. Upsert, not update: a brand-new
+    // store has no pre-existing product_stores rows at all yet, since
+    // approval is now global (see export/products/route.js) rather than
+    // seeded per-store at CSV-import time.
     const syncedSkus = Array.isArray(data.synced_skus) ? data.synced_skus.filter(Boolean) : []
     if (syncedSkus.length > 0) {
       await db.query(
-        `UPDATE product_stores ps
-         SET status = 'synced', updated_at = CURRENT_TIMESTAMP
-         FROM products p
-         WHERE ps.product_id = p.id AND ps.store_id = $1 AND p.sku = ANY($2::text[])`,
+        `INSERT INTO product_stores (product_id, store_id, status)
+         SELECT p.id, $1, 'synced' FROM products p WHERE p.sku = ANY($2::text[])
+         ON CONFLICT (product_id, store_id)
+         DO UPDATE SET status = 'synced', updated_at = CURRENT_TIMESTAMP`,
         [storeId, syncedSkus]
       )
     }

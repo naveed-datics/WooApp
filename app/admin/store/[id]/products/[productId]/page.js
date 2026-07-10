@@ -27,13 +27,14 @@ export default async function ProductDetailPage({ params }) {
   )
   const connectionMethod = storeResult.rows[0]?.connection_method
 
-  // Get product
+  // Get product (approval is global - see export/products/route.js;
+  // product_stores is joined only for this store's own woo_product_id)
   const productResult = await db.query(
     `SELECT p.id, p.sku, p.name, p.description, p.short_description, p.price, p.regular_price,
             p.sale_price, p.stock_quantity, p.manage_stock, p.stock_status, p.categories,
-            p.tags, p.images, p.attributes, ps.status, p.created_at, ps.reviewed_at
+            p.tags, p.images, p.attributes, p.status, p.created_at, p.reviewed_at, ps.woo_product_id
      FROM products p
-     INNER JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $2
+     LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $2
      WHERE p.id = $1`,
     [productId, storeId]
   )
