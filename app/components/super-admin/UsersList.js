@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import React from 'react'
+import { Button } from '@/app/components/ui/button'
+import { Users } from 'lucide-react'
 
 export default function UsersList({ users }) {
   const [expandedUser, setExpandedUser] = useState(null)
@@ -87,6 +89,20 @@ export default function UsersList({ users }) {
 
   return (
     <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            Admin Users
+          </h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Manage store admin accounts and their store assignments
+          </p>
+        </div>
+        <Button asChild>
+          <Link href="/super-admin/users/new">Add New Admin</Link>
+        </Button>
+      </div>
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
@@ -107,8 +123,12 @@ export default function UsersList({ users }) {
         <tbody className="bg-white divide-y divide-gray-200">
           {users.length === 0 ? (
             <tr>
-              <td colSpan="4" className="px-6 py-4 text-center text-gray-500">
-                No admin users found. Create your first admin user.
+              <td colSpan="4" className="px-6 py-12 text-center">
+                <Users className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+                <p className="text-gray-500 mb-4">No admin users found. Create your first admin user.</p>
+                <Button asChild>
+                  <Link href="/super-admin/users/new">Add New Admin</Link>
+                </Button>
               </td>
             </tr>
           ) : (

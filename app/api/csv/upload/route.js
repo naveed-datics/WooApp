@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin } from '../../../lib/auth'
 import db from '../../../lib/db'
-import { parseCSV, validateProductRow, validateVariationRow, parseProductRow, parseVariationRow } from '../../../lib/csv-parser'
-import { createVendorCache, resolveVendorId } from '../../../lib/vendor-resolver'
+import { parseCSV } from '../../../lib/csv-parser'
+import { importProductRows, importVariationRows } from '../../../lib/csv-import'
 import { auth } from '../../auth/[...nextauth]/route'
 import { requireSuperAdminApi } from '../../../lib/role-guards'
 
@@ -45,18 +44,17 @@ export async function POST(request) {
     const MAX_FILE_SIZE = 3 * 1024 * 1024 // 3MB
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { 
+        {
           error: `File size exceeds limit. Maximum size is ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)}MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB. Please split your CSV file into smaller files.`,
           fileSize: file.size,
-          maxSize: MAX_FILE_SIZE
+          maxSize: MAX_FILE_SIZE,
         },
-        { status: 413 } // Use 413 Payload Too Large status
+        { status: 413 }
       )
     }
 
     console.log(`Processing CSV upload: file=${file.name}, size=${(file.size / 1024).toFixed(2)}KB, type=${fileType}`)
 
-    // Read file content
     let fileText
     try {
       const fileBuffer = await file.arrayBuffer()
@@ -69,7 +67,6 @@ export async function POST(request) {
       )
     }
 
-    // Parse CSV
     let csvData
     try {
       csvData = await parseCSV(fileText)
@@ -88,13 +85,11 @@ export async function POST(request) {
       )
     }
 
-    // Log first row for debugging (shows what columns were detected)
     if (csvData.length > 0) {
       console.log('CSV First row columns:', Object.keys(csvData[0]))
       console.log('CSV First row sample:', csvData[0])
     }
 
-    // Create CSV upload record
     const uploadResult = await db.query(
       `INSERT INTO csv_uploads (store_id, vendor_id, uploaded_by, file_type, file_name, row_count, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'processing')
@@ -104,243 +99,55 @@ export async function POST(request) {
 
     const csvUploadId = uploadResult.rows[0].id
 
-    let processedCount = 0
-    let errorMessages = []
-    const vendorCache = createVendorCache()
-
     try {
+      let result = { processedCount: 0, newCount: 0, updatedCount: 0, errors: [] }
+
       if (fileType === 'products') {
-        // Validate and process products (upsert by store_id, sku)
-        // Process in batches to avoid timeout issues
-        const BATCH_SIZE = 50
-        console.log(`Processing ${csvData.length} product rows in batches of ${BATCH_SIZE}`)
-        
-        for (let batchStart = 0; batchStart < csvData.length; batchStart += BATCH_SIZE) {
-          const batchEnd = Math.min(batchStart + BATCH_SIZE, csvData.length)
-          console.log(`Processing batch: rows ${batchStart + 1} to ${batchEnd}`)
-          
-          for (let i = batchStart; i < batchEnd; i++) {
-            try {
-              const row = csvData[i]
-              const errors = validateProductRow(row, i)
-              
-              if (errors.length > 0) {
-                errorMessages.push(...errors)
-                continue
-              }
-
-              const productData = parseProductRow(row)
-              const resolvedVendorId = await resolveVendorId({
-                row,
-                defaultVendorId: vendorId,
-                vendorCache,
-                db,
-              })
-              const existing = await db.query(
-                'SELECT id FROM products WHERE sku = $1 LIMIT 1',
-                [productData.sku]
-              )
-
-              let productId
-              if (existing.rows.length > 0) {
-                productId = existing.rows[0].id
-                await db.query(
-                  `UPDATE products SET
-                    csv_upload_id = $1, vendor_id = $2, name = $3, description = $4, short_description = $5,
-                    price = $6, regular_price = $7, sale_price = $8, stock_quantity = $9,
-                    manage_stock = $10, stock_status = $11, categories = $12, tags = $13,
-                    images = $14, attributes = $15, brand = $16, updated_at = NOW()
-                   WHERE id = $17`,
-                  [
-                    csvUploadId,
-                    resolvedVendorId,
-                    productData.name,
-                    productData.description,
-                    productData.short_description,
-                    productData.price,
-                    productData.regular_price,
-                    productData.sale_price,
-                    productData.stock_quantity,
-                    productData.manage_stock,
-                    productData.stock_status,
-                    productData.categories,
-                    productData.tags,
-                    productData.images,
-                    productData.attributes,
-                    productData.brand,
-                    productId,
-                  ]
-                )
-              } else {
-                const inserted = await db.query(
-                  `INSERT INTO products (
-                    csv_upload_id, vendor_id, sku, name, description, short_description,
-                    price, regular_price, sale_price, stock_quantity, manage_stock,
-                    stock_status, categories, tags, images, attributes, brand
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-                  RETURNING id`,
-                  [
-                    csvUploadId,
-                    resolvedVendorId,
-                    productData.sku,
-                    productData.name,
-                    productData.description,
-                    productData.short_description,
-                    productData.price,
-                    productData.regular_price,
-                    productData.sale_price,
-                    productData.stock_quantity,
-                    productData.manage_stock,
-                    productData.stock_status,
-                    productData.categories,
-                    productData.tags,
-                    productData.images,
-                    productData.attributes,
-                    productData.brand,
-                  ]
-                )
-                productId = inserted.rows[0].id
-                // New product starts globally 'pending' (see the products.status
-                // column default) - approval is global, not per-store, so no
-                // product_stores linking is needed here (see export/products/route.js).
-              }
-              processedCount++
-            } catch (rowError) {
-              console.error(`Error processing row ${i + 1}:`, rowError.message)
-              errorMessages.push(`Row ${i + 1}: ${rowError.message}`)
-            }
-          }
-        }
+        console.log(`Processing ${csvData.length} product rows`)
+        result = await importProductRows({
+          rows: csvData,
+          vendorId,
+          csvUploadId,
+          db,
+        })
       } else if (fileType === 'variations') {
-        // Validate and process variations (upsert by product_id, sku)
-        // Process in batches to avoid timeout issues
-        const BATCH_SIZE = 50
-        console.log(`Processing ${csvData.length} variation rows in batches of ${BATCH_SIZE}`)
-        
-        for (let batchStart = 0; batchStart < csvData.length; batchStart += BATCH_SIZE) {
-          const batchEnd = Math.min(batchStart + BATCH_SIZE, csvData.length)
-          console.log(`Processing batch: rows ${batchStart + 1} to ${batchEnd}`)
-          
-          for (let i = batchStart; i < batchEnd; i++) {
-            try {
-              const row = csvData[i]
-              const errors = validateVariationRow(row, i)
-              
-              if (errors.length > 0) {
-                errorMessages.push(...errors)
-                continue
-              }
-
-              const variationData = parseVariationRow(row)
-
-              const productResult = await db.query(
-                'SELECT id FROM products WHERE sku = $1 LIMIT 1',
-                [variationData.parent_sku]
-              )
-
-              if (productResult.rows.length === 0) {
-                errorMessages.push(`Row ${i + 1}: Parent product with SKU "${variationData.parent_sku}" not found`)
-                continue
-              }
-
-              const productId = productResult.rows[0].id
-              const existingVar = await db.query(
-                'SELECT id FROM product_variations WHERE product_id = $1 AND sku = $2 LIMIT 1',
-                [productId, variationData.sku]
-              )
-
-              const imagesVal = variationData.images || variationData.image || null
-              const imageVal = variationData.image || (variationData.images ? String(variationData.images).split(',')[0]?.trim() : null) || null
-
-              if (existingVar.rows.length > 0) {
-                await db.query(
-                  `UPDATE product_variations SET
-                    csv_upload_id = $1, parent_sku = $2, attributes = $3, size = $4, color = $5, price = $6,
-                    regular_price = $7, sale_price = $8, stock_quantity = $9,
-                    manage_stock = $10, stock_status = $11, image = $12, tax_class = $13,
-                    images = $14, updated_at = NOW()
-                   WHERE id = $15`,
-                  [
-                    csvUploadId,
-                    variationData.parent_sku,
-                    variationData.attributes,
-                    variationData.size,
-                    variationData.color,
-                    variationData.price,
-                    variationData.regular_price,
-                    variationData.sale_price,
-                    variationData.stock_quantity,
-                    variationData.manage_stock,
-                    variationData.stock_status,
-                    imageVal,
-                    variationData.tax_class,
-                    imagesVal,
-                    existingVar.rows[0].id,
-                  ]
-                )
-              } else {
-                await db.query(
-                  `INSERT INTO product_variations (
-                    product_id, csv_upload_id, parent_sku, sku, attributes, size, color,
-                    price, regular_price, sale_price, stock_quantity, manage_stock,
-                    stock_status, image, tax_class, images, status
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending')`,
-                  [
-                    productId,
-                    csvUploadId,
-                    variationData.parent_sku,
-                    variationData.sku,
-                    variationData.attributes,
-                    variationData.size,
-                    variationData.color,
-                    variationData.price,
-                    variationData.regular_price,
-                    variationData.sale_price,
-                    variationData.stock_quantity,
-                    variationData.manage_stock,
-                    variationData.stock_status,
-                    imageVal,
-                    variationData.tax_class,
-                    imagesVal,
-                  ]
-                )
-              }
-              processedCount++
-            } catch (rowError) {
-              console.error(`Error processing row ${i + 1}:`, rowError.message)
-              errorMessages.push(`Row ${i + 1}: ${rowError.message}`)
-            }
-          }
-        }
+        console.log(`Processing ${csvData.length} variation rows`)
+        result = await importVariationRows({
+          rows: csvData,
+          csvUploadId,
+          db,
+        })
       }
 
-      // Update CSV upload status
       await db.query(
-        `UPDATE csv_uploads 
+        `UPDATE csv_uploads
          SET status = $1, row_count = $2, error_message = $3, updated_at = CURRENT_TIMESTAMP
          WHERE id = $4`,
         [
-          errorMessages.length > 0 ? 'completed' : 'completed',
-          processedCount,
-          errorMessages.length > 0 ? errorMessages.slice(0, 50).join('\n') : null, // Limit error message length
+          'completed',
+          result.processedCount,
+          result.errors.length > 0 ? result.errors.slice(0, 50).join('\n') : null,
           csvUploadId,
         ]
       )
 
-      console.log(`CSV upload completed: ${processedCount} rows processed, ${errorMessages.length} errors`)
+      console.log(
+        `CSV upload completed: ${result.processedCount} processed (${result.newCount} new, ${result.updatedCount} updated), ${result.errors.length} errors`
+      )
 
       return NextResponse.json({
         message: 'CSV uploaded and processed successfully',
         csvUploadId,
-        rowCount: processedCount,
+        rowCount: result.processedCount,
         totalRows: csvData.length,
-        errors: errorMessages.length > 0 ? errorMessages.slice(0, 100) : undefined, // Return first 100 errors
-        errorCount: errorMessages.length,
+        newCount: result.newCount,
+        updatedCount: result.updatedCount,
+        errors: result.errors.length > 0 ? result.errors.slice(0, 100) : undefined,
+        errorCount: result.errors.length,
       })
     } catch (error) {
-      // Update CSV upload status to failed
       await db.query(
-        `UPDATE csv_uploads 
+        `UPDATE csv_uploads
          SET status = 'failed', error_message = $1, updated_at = CURRENT_TIMESTAMP
          WHERE id = $2`,
         [error.message, csvUploadId]
@@ -350,23 +157,20 @@ export async function POST(request) {
     }
   } catch (error) {
     console.error('Error uploading CSV:', error)
-    
-    // Handle specific Vercel errors
+
     if (error.message && error.message.includes('FUNCTION_PAYLOAD_TOO_LARGE')) {
       return NextResponse.json(
-        { 
+        {
           error: 'File is too large. Maximum file size is 3MB. Please split your CSV file into smaller files or compress it.',
-          code: 'PAYLOAD_TOO_LARGE'
+          code: 'PAYLOAD_TOO_LARGE',
         },
         { status: 413 }
       )
     }
-    
+
     return NextResponse.json(
       { error: error.message || 'Failed to upload CSV' },
       { status: 500 }
     )
   }
 }
-
-

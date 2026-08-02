@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { requireSuperAdmin } from '../../lib/auth'
 import db from '../../lib/db'
+import { assignAllVendorsToStore } from '../../lib/vendor-store-assignment'
 
 export async function GET() {
   try {
@@ -59,7 +60,10 @@ export async function POST(request) {
       ]
     )
 
-    return NextResponse.json(result.rows[0], { status: 201 })
+    const store = result.rows[0]
+    await assignAllVendorsToStore(store.id)
+
+    return NextResponse.json(store, { status: 201 })
   } catch (error) {
     console.error('Error creating store:', error)
     return NextResponse.json(

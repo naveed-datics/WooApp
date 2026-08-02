@@ -34,6 +34,9 @@ yarn-error.log*
 # db backups from scripts/migrate-*.js
 /scripts/backups
 
+# Ralawise sync temp downloads
+/tmp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.js

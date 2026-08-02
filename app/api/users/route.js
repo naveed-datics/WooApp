@@ -26,7 +26,7 @@ export async function POST(request) {
     await requireSuperAdmin()
     
     const body = await request.json()
-    const { name, email, password, role } = body
+    const { name, email, password } = body
 
     if (!name || !email || !password) {
       return NextResponse.json(
@@ -55,7 +55,7 @@ export async function POST(request) {
       `INSERT INTO users (name, email, password_hash, role)
        VALUES ($1, $2, $3, $4)
        RETURNING id, email, name, role, created_at`,
-      [name, email, passwordHash, role || 'admin']
+      [name, email, passwordHash, 'admin']
     )
 
     return NextResponse.json(result.rows[0], { status: 201 })

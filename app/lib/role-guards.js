@@ -12,6 +12,19 @@ export function requireSuperAdminApi(session) {
 }
 
 /**
+ * Allow super_admin or store admin (admin). Store scoping is caller's responsibility.
+ */
+export function requireAdminOrSuperAdminApi(session) {
+  if (!session) {
+    return { ok: false, status: 401, error: 'Unauthorized' }
+  }
+  if (session.user.role !== 'super_admin' && session.user.role !== 'admin') {
+    return { ok: false, status: 403, error: 'Unauthorized' }
+  }
+  return { ok: true }
+}
+
+/**
  * Reject super-admin callers for sync routes (store admins sync only).
  */
 export function requireStoreAdminApi(session) {

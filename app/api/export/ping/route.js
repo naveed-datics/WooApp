@@ -8,8 +8,7 @@ import db from '../../../lib/db'
  * x-api-key pair is valid and reports how many products are currently
  * available to import, without transferring the full product payload.
  *
- * Product approval is global (not per-store - see export/products/route.js),
- * so these counts reflect the whole catalog, the same for every store.
+ * Counts are scoped to vendors assigned to the authenticated store.
  */
 export async function GET(request) {
   try {
@@ -21,9 +20,11 @@ export async function GET(request) {
 
     const counts = await db.query(
       `SELECT
-        COUNT(*) FILTER (WHERE status = 'approved') AS exportable_products,
+        COUNT(*) FILTER (WHERE p.status = 'approved') AS exportable_products,
         COUNT(*) AS total_products
-       FROM products`
+       FROM products p
+       INNER JOIN vendor_stores vs ON vs.vendor_id = p.vendor_id AND vs.store_id = $1`,
+      [auth.store.id]
     )
 
     return NextResponse.json({

@@ -10,21 +10,34 @@ import {
   CardTitle,
 } from '@/app/components/ui/card'
 import { Upload, ShoppingBag, Layers } from 'lucide-react'
+import RalawiseSyncButton from '@/app/components/ralawise-sync-button'
 
 export default async function UploadProductsPage() {
   await requireSuperAdmin()
 
-  const result = await db.query(
-    'SELECT id, name, store_url, status FROM stores ORDER BY name ASC'
-  )
-  const stores = result.rows
+  const [storesResult, vendorsResult] = await Promise.all([
+    db.query(
+      'SELECT id, name, store_url, status FROM stores ORDER BY name ASC'
+    ),
+    db.query(
+      `SELECT id, name FROM vendors WHERE status = 'active' ORDER BY name ASC`
+    ),
+  ])
+  const stores = storesResult.rows
+  const vendors = vendorsResult.rows
+  const defaultVendorId =
+    process.env.RALAWISE_DEFAULT_VENDOR_ID ||
+    (vendors.find((v) => v.name.toLowerCase() === 'ralawise')?.id ??
+      vendors[0]?.id ??
+      '')
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Upload Catalog</h1>
         <p className="text-gray-600 mt-1">
-          Choose a store, then upload products or variations as separate CSV files.
+          Choose a store, then upload products or variations as separate CSV files — or sync
+          directly from Ralawise.
         </p>
       </div>
 
@@ -69,6 +82,14 @@ export default async function UploadProductsPage() {
                     Review Products
                   </Link>
                 </Button>
+                <div className="pt-2 border-t border-gray-100">
+                  <RalawiseSyncButton
+                    storeId={store.id}
+                    vendors={vendors}
+                    defaultVendorId={String(defaultVendorId || '')}
+                    compact
+                  />
+                </div>
               </CardContent>
             </Card>
           ))}

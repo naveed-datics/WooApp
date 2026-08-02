@@ -10,7 +10,7 @@ export default async function ProductsPage({ params, searchParams }) {
   const resolvedSearchParams = await searchParams
   const storeId = parseInt(id)
   const isStoreAdmin = session.user.role === 'admin'
-  const status = resolvedSearchParams?.status || (isStoreAdmin ? 'approved' : 'pending')
+  const status = resolvedSearchParams?.status || (isStoreAdmin ? 'all' : 'pending')
   const page = parseInt(resolvedSearchParams?.page || '1')
   const limit = parseInt(resolvedSearchParams?.limit || '50')
   const search = resolvedSearchParams?.search || ''

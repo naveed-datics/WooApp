@@ -1,6 +1,8 @@
 import { requireAdmin } from '../../../lib/auth'
 import db from '../../../lib/db'
 import { redirect } from 'next/navigation'
+import { VENDOR_STORE_JOIN } from '../../../lib/vendor-store-filter'
+import RalawiseSyncButton from '../../../components/ralawise-sync-button'
 
 export default async function StoreDashboardPage({ params }) {
   const session = await requireAdmin()
@@ -39,25 +41,39 @@ export default async function StoreDashboardPage({ params }) {
 
   const store = storeResult.rows[0]
 
-  // Get stats. Product approval is global (see export/products/route.js),
-  // so the catalog size is the same for every store.
-  const [productsResult, ordersResult, csvUploadsResult] = await Promise.all([
-    db.query('SELECT COUNT(*) as count FROM products'),
-    db.query(
-      'SELECT COUNT(*) as count FROM orders WHERE store_id = $1',
-      [storeId]
-    ),
-    db.query(
-      'SELECT COUNT(*) as count FROM csv_uploads WHERE store_id = $1',
-      [storeId]
-    ),
-  ])
+  const [productsResult, ordersResult, csvUploadsResult, vendorsResult] =
+    await Promise.all([
+      db.query(
+        `SELECT COUNT(*) as count
+         FROM products p
+         ${VENDOR_STORE_JOIN}
+         WHERE p.status = 'approved'`,
+        [storeId]
+      ),
+      db.query('SELECT COUNT(*) as count FROM orders WHERE store_id = $1', [
+        storeId,
+      ]),
+      db.query(
+        'SELECT COUNT(*) as count FROM csv_uploads WHERE store_id = $1',
+        [storeId]
+      ),
+      db.query(
+        `SELECT id, name FROM vendors WHERE status = 'active' ORDER BY name ASC`
+      ),
+    ])
 
   const stats = {
     products: parseInt(productsResult.rows[0].count),
     orders: parseInt(ordersResult.rows[0].count),
     csvUploads: parseInt(csvUploadsResult.rows[0].count),
   }
+
+  const vendors = vendorsResult.rows
+  const defaultVendorId =
+    process.env.RALAWISE_DEFAULT_VENDOR_ID ||
+    (vendors.find((v) => v.name.toLowerCase() === 'ralawise')?.id ??
+      vendors[0]?.id ??
+      '')
 
   return (
     <div>
@@ -70,6 +86,7 @@ export default async function StoreDashboardPage({ params }) {
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-medium text-gray-700 mb-2">Products</h3>
           <p className="text-3xl font-bold text-indigo-600">{stats.products}</p>
+          <p className="text-sm text-gray-500 mt-1">Approved and ready to sync</p>
         </div>
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-medium text-gray-700 mb-2">Orders</h3>
@@ -79,6 +96,19 @@ export default async function StoreDashboardPage({ params }) {
           <h3 className="text-lg font-medium text-gray-700 mb-2">CSV Uploads</h3>
           <p className="text-3xl font-bold text-blue-600">{stats.csvUploads}</p>
         </div>
+      </div>
+
+      <div className="mb-6 bg-white p-6 rounded-lg shadow">
+        <h3 className="text-lg font-medium text-gray-900 mb-1">Sync from Ralawise</h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Download the latest Ralawise WordPress CSVs and import new + updated products
+          into WooApp for this store.
+        </p>
+        <RalawiseSyncButton
+          storeId={storeId}
+          vendors={vendors}
+          defaultVendorId={String(defaultVendorId || '')}
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -108,7 +138,9 @@ export default async function StoreDashboardPage({ params }) {
             {isStoreAdmin ? 'Products' : 'Review Products'}
           </h3>
           <p className="text-gray-600 text-sm">
-            {isStoreAdmin ? 'View products assigned to this store' : 'Review and approve pending products'}
+            {isStoreAdmin
+              ? 'View products assigned to this store'
+              : 'Review and approve pending products'}
           </p>
         </a>
         <a
@@ -129,5 +161,3 @@ export default async function StoreDashboardPage({ params }) {
     </div>
   )
 }
-
-
