@@ -3,6 +3,7 @@ import db from '../../../../lib/db'
 import { redirect } from 'next/navigation'
 import ProductReview from '../../../../components/product-review'
 import { VENDOR_STORE_JOIN } from '../../../../lib/vendor-store-filter'
+import { getStorePricingContext } from '../../../../lib/app-settings'
 
 export default async function ProductsPage({ params, searchParams }) {
   const session = await requireAdmin()
@@ -38,6 +39,7 @@ export default async function ProductsPage({ params, searchParams }) {
   }
 
   const store = storeResult.rows[0]
+  const pricing = await getStorePricingContext(store)
   const vendorJoin = isStoreAdmin ? VENDOR_STORE_JOIN : ''
 
   function buildFilterParts(startIndex) {
@@ -139,9 +141,10 @@ export default async function ProductsPage({ params, searchParams }) {
           {isStoreAdmin ? 'Products' : 'Review Products'}
         </h1>
         <p className="text-gray-600 mt-1">Store: {store.name}</p>
-        {store.price_rule_percent !== null && store.price_rule_percent !== undefined && (
+        {pricing.effective !== null && pricing.effective !== undefined && (
           <p className="text-sm text-indigo-600 mt-1">
-            Price rule: +{store.price_rule_percent}% markup on cost
+            Price rule: +{pricing.effective}% markup on cost
+            {pricing.isOverride ? ' (store override)' : ' (default)'}
           </p>
         )}
         {isStoreAdmin && (
@@ -153,7 +156,7 @@ export default async function ProductsPage({ params, searchParams }) {
       <ProductReview
         storeId={storeId}
         connectionMethod={store.connection_method}
-        priceRulePercent={store.price_rule_percent}
+        priceRulePercent={pricing.effective}
         products={productsResult.rows}
         status={status}
         currentPage={page}

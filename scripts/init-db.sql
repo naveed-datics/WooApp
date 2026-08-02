@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS stores (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Global app settings (e.g. default_price_rule_percent)
+CREATE TABLE IF NOT EXISTS app_settings (
+  key VARCHAR(100) PRIMARY KEY,
+  value TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO app_settings (key, value)
+VALUES ('default_price_rule_percent', NULL)
+ON CONFLICT (key) DO NOTHING;
+
 -- Vendors table
 CREATE TABLE IF NOT EXISTS vendors (
   id SERIAL PRIMARY KEY,

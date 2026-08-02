@@ -1,8 +1,13 @@
 /**
  * Store price rule helpers.
  *
- * Markup: store_price = cost × (1 + price_rule_percent / 100)
- * e.g. 40 → ×1.40. If percent is null/empty, return cost unchanged.
+ * Markup: store_price = cost × (1 + percent / 100)
+ * e.g. 40 → ×1.40.
+ *
+ * Effective percent resolution (done by callers / getStorePricingContext):
+ *   1. stores.price_rule_percent if set (store override)
+ *   2. else app_settings.default_price_rule_percent (super-admin default)
+ *   3. else null → sell = cost
  */
 
 function toNumber(value) {
@@ -43,19 +48,47 @@ export function resolveCostPrice(row) {
 }
 
 /**
- * Store price applies the store's markup rule, or falls back to cost.
+ * Prefer store override, else default percent.
+ *
+ * @param {{ price_rule_percent?: any }|null|undefined} store
+ * @param {number|string|null|undefined} defaultPercent
+ * @returns {number|null}
+ */
+export function resolveEffectivePercent(store, defaultPercent = null) {
+  const override = toNumber(store?.price_rule_percent)
+  if (override !== null) return override
+  return toNumber(defaultPercent)
+}
+
+/**
+ * Store sell price using effective markup on cost.
+ *
+ * Pass either:
+ *   - store with price_rule_percent already set to the effective %, or
+ *   - store + defaultPercent so override → default is resolved here.
  *
  * @param {{ regular_price?: any, price?: any }} row
  * @param {{ price_rule_percent?: any }|null|undefined} store
+ * @param {number|string|null|undefined} [defaultPercent]
  * @returns {number|null}
  */
-export function resolveStorePrice(row, store) {
+export function resolveStorePrice(row, store, defaultPercent = null) {
   const cost = resolveCostPrice(row)
-  return applyPriceRule(cost, store?.price_rule_percent)
+  const percent = resolveEffectivePercent(store, defaultPercent)
+  return applyPriceRule(cost, percent)
 }
 
 export function formatMoney(value) {
   const n = toNumber(value)
   if (n === null) return '-'
   return `£${n.toFixed(2)}`
+}
+
+export function parsePriceRuleInput(value) {
+  if (value === '' || value === null || value === undefined) return null
+  const n = Number(value)
+  if (!Number.isFinite(n)) {
+    throw new Error('Price rule percent must be a number')
+  }
+  return n
 }

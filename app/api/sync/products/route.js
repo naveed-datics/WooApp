@@ -4,6 +4,7 @@ import db from '../../../lib/db'
 import { auth } from '../../auth/[...nextauth]/route'
 import { requireStoreAdminApi, verifyAdminStoreAccess } from '../../../lib/role-guards'
 import { resolveStorePrice } from '../../../lib/pricing'
+import { getStorePricingContext } from '../../../lib/app-settings'
 
 const WooCommerceClient = require('../../../lib/woocommerce')
 
@@ -38,6 +39,8 @@ export async function POST(request) {
     }
 
     const store = storeResult.rows[0]
+    const pricing = await getStorePricingContext(store)
+    store.price_rule_percent = pricing.effective
 
     if (store.connection_method === 'plugin') {
       return NextResponse.json(

@@ -2,6 +2,7 @@ import { requireAdmin } from '../../../../../lib/auth'
 import db from '../../../../../lib/db'
 import { redirect } from 'next/navigation'
 import ProductDetail from '../../../../../components/product-detail'
+import { getStorePricingContext } from '../../../../../lib/app-settings'
 
 export default async function ProductDetailPage({ params }) {
   const session = await requireAdmin()
@@ -25,8 +26,10 @@ export default async function ProductDetailPage({ params }) {
     'SELECT connection_method, price_rule_percent FROM stores WHERE id = $1',
     [storeId]
   )
-  const connectionMethod = storeResult.rows[0]?.connection_method
-  const priceRulePercent = storeResult.rows[0]?.price_rule_percent
+  const store = storeResult.rows[0] || {}
+  const connectionMethod = store.connection_method
+  const pricing = await getStorePricingContext(store)
+  const priceRulePercent = pricing.effective
 
   // Get product (approval is global - see export/products/route.js;
   // product_stores is joined only for this store's own woo_product_id)

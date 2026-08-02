@@ -256,7 +256,7 @@ export default function StoreForm({ store = null }) {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="price_rule_percent">Price rule (%)</Label>
+            <Label htmlFor="price_rule_percent">Store price override (%)</Label>
             <Input
               type="number"
               step="0.01"
@@ -264,11 +264,13 @@ export default function StoreForm({ store = null }) {
               name="price_rule_percent"
               value={formData.price_rule_percent}
               onChange={handleChange}
-              placeholder="e.g. 40"
+              placeholder="Leave empty to use global default"
               disabled={mutation.isPending}
             />
             <p className="text-sm text-muted-foreground">
-              Markup on Ralawise cost (e.g. 40 → sell at cost × 1.40). Empty = use cost as sell price.
+              Optional override for this store. Empty = use the super-admin default from Settings.
+              Store admins can also change this on their Settings page. Markup is on Ralawise cost
+              (e.g. 40 → sell at cost × 1.40).
             </p>
           </div>
 
