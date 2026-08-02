@@ -22,6 +22,9 @@ export async function POST(request, { params }) {
     const storeId = parseInt(id)
     const body = await request.json().catch(() => ({}))
     const fullResync = Boolean(body.full_resync)
+    const productIds = Array.isArray(body.product_ids)
+      ? body.product_ids.map((value) => parseInt(value, 10)).filter((value) => Number.isInteger(value) && value > 0)
+      : []
 
     if (session.user.role !== 'super_admin') {
       const accessCheck = await db.query(
@@ -59,6 +62,47 @@ export async function POST(request, { params }) {
       return NextResponse.json(
         { error: 'This store is missing its base URL or export API key.' },
         { status: 400 }
+      )
+    }
+
+    // Selected "Export to Store" products: approve pending/rejected ones so the
+    // plugin pull can see them, and bump updated_at so incremental import
+    // includes them even if they were already approved.
+    if (productIds.length > 0) {
+      const placeholders = productIds.map((_, i) => `$${i + 2}`).join(',')
+      const eligible = await db.query(
+        `SELECT p.id
+         FROM products p
+         INNER JOIN vendor_stores vs ON vs.vendor_id = p.vendor_id AND vs.store_id = $1
+         WHERE p.id IN (${placeholders})`,
+        [storeId, ...productIds]
+      )
+
+      const eligibleIds = eligible.rows.map((row) => row.id)
+      if (eligibleIds.length === 0) {
+        return NextResponse.json(
+          { error: 'None of the selected products are available for this store.' },
+          { status: 400 }
+        )
+      }
+
+      const eligiblePlaceholders = eligibleIds.map((_, i) => `$${i + 2}`).join(',')
+      await db.query(
+        `UPDATE products
+         SET status = 'approved',
+             reviewed_by = COALESCE(reviewed_by, $1),
+             reviewed_at = COALESCE(reviewed_at, CURRENT_TIMESTAMP),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id IN (${eligiblePlaceholders})`,
+        [session.user.id, ...eligibleIds]
+      )
+
+      await db.query(
+        `UPDATE product_variations
+         SET status = 'approved', updated_at = CURRENT_TIMESTAMP
+         WHERE product_id IN (${eligibleIds.map((_, i) => `$${i + 1}`).join(',')})
+           AND status = 'pending'`,
+        eligibleIds
       )
     }
 

@@ -100,19 +100,6 @@ export default async function ProductsPage({ params, searchParams }) {
     queryParams
   )
 
-  const approvedCountSql = isStoreAdmin
-    ? `SELECT COUNT(*) as count
-       FROM products p
-       ${VENDOR_STORE_JOIN}
-       WHERE p.status = 'approved'`
-    : "SELECT COUNT(*) as count FROM products WHERE status = 'approved'"
-
-  const approvedCountResult = await db.query(
-    approvedCountSql,
-    isStoreAdmin ? [storeId] : []
-  )
-  const approvedProductsCount = parseInt(approvedCountResult.rows[0].count)
-
   const countStartIndex = isStoreAdmin ? 2 : 1
   const countFilters = buildFilterParts(countStartIndex)
   const countWhereClause =
@@ -167,7 +154,6 @@ export default async function ProductsPage({ params, searchParams }) {
         search={search}
         brand={brand}
         brands={brands}
-        approvedProductsCount={approvedProductsCount}
         userRole={session.user.role}
         canApprove={!isStoreAdmin}
         canSync={isStoreAdmin}

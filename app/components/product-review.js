@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
-export default function ProductReview({ storeId, connectionMethod, products, status, currentPage, totalPages, total, limit = 50, search = '', brand = '', brands = [], approvedProductsCount = 0, canApprove = true, canSync = true }) {
+export default function ProductReview({ storeId, connectionMethod, products, status, currentPage, totalPages, total, limit = 50, search = '', brand = '', brands = [], canApprove = true, canSync = true }) {
   const isPluginStore = connectionMethod === 'plugin'
   const router = useRouter()
   const [loading, setLoading] = useState(null)
@@ -174,85 +174,6 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
     }
   }
 
-  const handleSyncAll = async () => {
-    if (approvedProductsCount === 0) {
-      alert('No approved products to sync')
-      return
-    }
-
-    if (!confirm(`Are you sure you want to sync ${approvedProductsCount} approved products to WooCommerce? This may take a while.`)) {
-      return
-    }
-
-    setLoading('sync-all')
-    setError('')
-    setSuccess('')
-
-    try {
-      const response = await fetch('/api/sync/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          store_id: storeId,
-          sync_type: 'products',
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to sync products')
-      }
-
-      setSuccess(`Sync completed! ${data.succeeded} succeeded, ${data.failed} failed.`)
-      setLoading(null)
-      
-      // Refresh page after a delay to show updated statuses
-      setTimeout(() => {
-        router.refresh()
-      }, 2000)
-    } catch (err) {
-      setError(err.message)
-      setLoading(null)
-    }
-  }
-
-  const handleTriggerImport = async () => {
-    if (approvedProductsCount === 0) {
-      alert('No approved products to pull in')
-      return
-    }
-
-    setLoading('sync-all')
-    setError('')
-    setSuccess('')
-
-    try {
-      const response = await fetch(`/api/stores/${storeId}/trigger-import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_resync: false }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to trigger import')
-      }
-
-      const progress = data.progress || {}
-      setSuccess(`Import triggered! ${progress.created ?? 0} created, ${progress.updated ?? 0} updated, ${data.syncedCount ?? 0} marked synced.`)
-      setLoading(null)
-
-      setTimeout(() => {
-        router.refresh()
-      }, 2000)
-    } catch (err) {
-      setError(err.message)
-      setLoading(null)
-    }
-  }
-
   const handleSyncProduct = async (productId) => {
     setLoading(productId)
     setError('')
@@ -286,15 +207,15 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
     }
   }
 
-  const handleSyncSelected = async () => {
-    const selectedProducts = products.filter((p) => selectedIds.has(p.id) && p.status === 'approved')
+  const handleExportToStore = async () => {
+    const selectedProducts = products.filter((p) => selectedIds.has(p.id))
 
     if (selectedProducts.length === 0) {
-      alert('No approved products selected')
+      alert('No products selected')
       return
     }
 
-    if (!confirm(`Are you sure you want to sync ${selectedProducts.length} selected products to WooCommerce?`)) {
+    if (!confirm(`Export ${selectedProducts.length} selected product(s) to the store?`)) {
       return
     }
 
@@ -302,33 +223,61 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
     setError('')
     setSuccess('')
 
-    let succeeded = 0
-    let failed = 0
-
-    for (const product of selectedProducts) {
-      try {
-        const response = await fetch(`/api/sync/product/${product.id}`, {
+    try {
+      if (isPluginStore) {
+        const response = await fetch(`/api/stores/${storeId}/trigger-import`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ store_id: storeId }),
+          body: JSON.stringify({
+            full_resync: false,
+            product_ids: selectedProducts.map((p) => p.id),
+          }),
         })
-        if (response.ok) {
-          succeeded++
-        } else {
-          failed++
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to export products to store')
         }
-      } catch (err) {
-        failed++
+
+        const progress = data.progress || {}
+        setSuccess(
+          `Exported to store! ${progress.created ?? 0} created, ${progress.updated ?? 0} updated, ${data.syncedCount ?? 0} marked synced.`
+        )
+      } else {
+        let succeeded = 0
+        let failed = 0
+
+        for (const product of selectedProducts) {
+          try {
+            const response = await fetch(`/api/sync/product/${product.id}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ store_id: storeId }),
+            })
+            if (response.ok) {
+              succeeded++
+            } else {
+              failed++
+            }
+          } catch {
+            failed++
+          }
+        }
+
+        setSuccess(`Exported to store! ${succeeded} succeeded, ${failed} failed.`)
       }
+
+      setLoading(null)
+      setSelectedIds(new Set())
+
+      setTimeout(() => {
+        router.refresh()
+      }, 2000)
+    } catch (err) {
+      setError(err.message)
+      setLoading(null)
     }
-
-    setSuccess(`Sync completed! ${succeeded} succeeded, ${failed} failed.`)
-    setLoading(null)
-    setSelectedIds(new Set())
-
-    setTimeout(() => {
-      router.refresh()
-    }, 1000)
   }
 
   const toggleVariants = async (productId) => {
@@ -505,17 +454,6 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
             </button>
           </div>
         )}
-        {isSomeSelected && canSync && !isPluginStore && (status === 'approved' || status === 'all') && (
-          <div className="flex space-x-2">
-            <button
-              onClick={handleSyncSelected}
-              disabled={loading === 'bulk'}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {loading === 'bulk' ? 'Syncing...' : `Sync Selected (${selectedIds.size})`}
-            </button>
-          </div>
-        )}
       </div>
 
       {error && (
@@ -576,25 +514,14 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
           )}
         </div>
 
-        {/* Sync All Button */}
-        {approvedProductsCount > 0 && canSync && (
-          isPluginStore ? (
-            <button
-              onClick={handleTriggerImport}
-              disabled={loading === 'sync-all'}
-              className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-            >
-              {loading === 'sync-all' ? 'Triggering...' : `Trigger Import Now (${approvedProductsCount} approved)`}
-            </button>
-          ) : (
-            <button
-              onClick={handleSyncAll}
-              disabled={loading === 'sync-all'}
-              className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-            >
-              {loading === 'sync-all' ? 'Syncing...' : `Sync All (${approvedProductsCount} approved products)`}
-            </button>
-          )
+        {isSomeSelected && canSync && (
+          <button
+            onClick={handleExportToStore}
+            disabled={loading === 'bulk'}
+            className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium whitespace-nowrap"
+          >
+            {loading === 'bulk' ? 'Exporting...' : `Export to Store (${selectedIds.size})`}
+          </button>
         )}
       </div>
 
