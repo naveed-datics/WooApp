@@ -289,6 +289,12 @@ export async function POST(request, { params }) {
         return attributes
       }
 
+      const resolveNativeBrandIds = async () => {
+        if (!product.brand) return []
+        const brandId = await wooClient.getOrCreateBrand(product.brand)
+        return brandId ? [{ id: brandId }] : []
+      }
+
       // ✅ STEP 0: Create categories if provided (before creating product)
       const categoryIds = []
       if (product.categories) {
@@ -400,6 +406,11 @@ export async function POST(request, { params }) {
         }
       }
 
+      const nativeBrands = await resolveNativeBrandIds()
+      if (nativeBrands.length > 0) {
+        wooProductData.brands = nativeBrands
+      }
+
       let wooProduct
 
       // Create or update product (STEP 1)
@@ -465,7 +476,10 @@ export async function POST(request, { params }) {
         if (wooAttributes.length > 0) {
           // Update product with attributes
           const attributesUpdate = {
-            attributes: wooAttributes
+            attributes: wooAttributes,
+          }
+          if (nativeBrands.length > 0) {
+            attributesUpdate.brands = nativeBrands
           }
           
           wooProduct = await wooClient.updateProduct(wooProduct.id, attributesUpdate)
@@ -476,9 +490,13 @@ export async function POST(request, { params }) {
       } else if (!hasVariations && (product.brand || product.vendor_name) && wooProduct?.id) {
         // Ensure Brand/Vendor stick on update of existing simple products
         const productLevelAttributes = appendProductLevelAttributes([])
-        wooProduct = await wooClient.updateProduct(wooProduct.id, {
+        const simpleUpdate = {
           attributes: productLevelAttributes,
-        })
+        }
+        if (nativeBrands.length > 0) {
+          simpleUpdate.brands = nativeBrands
+        }
+        wooProduct = await wooClient.updateProduct(wooProduct.id, simpleUpdate)
       }
 
       // ✅ STEP 3: Create Variations using Batch Endpoint

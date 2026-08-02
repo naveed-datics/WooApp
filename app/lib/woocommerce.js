@@ -95,6 +95,47 @@ class WooCommerceClient {
     }
   }
 
+  /**
+   * Resolve a brand name to a WooCommerce Brands term id (products/brands),
+   * creating the brand when it does not exist. Returns null if Brands is
+   * unavailable on the store.
+   */
+  async getOrCreateBrand(brandName, cache = null) {
+    const name = String(brandName || '').trim()
+    if (!name) return null
+
+    const cacheKey = name.toLowerCase()
+    if (cache instanceof Map && cache.has(cacheKey)) {
+      return cache.get(cacheKey)
+    }
+
+    try {
+      const search = await this.client.get('products/brands', {
+        params: { search: name, per_page: 100 },
+      })
+      const existing = (search.data || []).find(
+        (b) => String(b.name || '').toLowerCase() === cacheKey
+      )
+      if (existing?.id) {
+        if (cache instanceof Map) cache.set(cacheKey, existing.id)
+        return existing.id
+      }
+
+      const created = await this.client.post('products/brands', { name })
+      const id = created.data?.id || null
+      if (cache instanceof Map && id) cache.set(cacheKey, id)
+      return id
+    } catch (error) {
+      // Older WC / Brands disabled — sync can continue without native brands.
+      console.warn(
+        'WooCommerce Brands unavailable or failed for',
+        name,
+        error.response?.data || error.message
+      )
+      return null
+    }
+  }
+
   async getProduct(productId) {
     try {
       const response = await this.client.get(`products/${productId}`)

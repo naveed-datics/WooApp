@@ -363,6 +363,12 @@ export async function POST(request) {
             variation: false,
             options: [product.brand],
           })
+
+          // Native WooCommerce Brands taxonomy (Products → Brands)
+          const brandId = await wooClient.getOrCreateBrand(product.brand)
+          if (brandId) {
+            wooProductData.brands = [{ id: brandId }]
+          }
         }
 
         if (product.vendor_name) {
