@@ -2,7 +2,6 @@ import { requireAdmin } from '../../../../lib/auth'
 import db from '../../../../lib/db'
 import { redirect } from 'next/navigation'
 import SyncManagement from '../../../../components/sync-management'
-import { VENDOR_STORE_JOIN } from '../../../../lib/vendor-store-filter'
 
 export default async function SyncPage({ params }) {
   const session = await requireAdmin()
@@ -37,17 +36,6 @@ export default async function SyncPage({ params }) {
 
   const store = storeResult.rows[0]
 
-  // Get approved products count (approval is global - see export/products/route.js)
-  const productsResult = await db.query(
-    `SELECT COUNT(*) as count
-     FROM products p
-     ${VENDOR_STORE_JOIN}
-     WHERE p.status = 'approved'`,
-    [storeId]
-  )
-
-  const approvedProductsCount = parseInt(productsResult.rows[0].count)
-
   // Get recent sync logs
   const logsResult = await db.query(
     `SELECT id, sync_type, status, items_processed, items_succeeded, items_failed, 
@@ -65,14 +53,10 @@ export default async function SyncPage({ params }) {
         <h1 className="text-3xl font-bold text-gray-900">Sync Management</h1>
         <p className="text-gray-600 mt-1">Store: {store.name}</p>
       </div>
-      <SyncManagement 
-        storeId={storeId}
+      <SyncManagement
         store={store}
-        approvedProductsCount={approvedProductsCount}
         syncLogs={logsResult.rows}
       />
     </div>
   )
 }
-
-
