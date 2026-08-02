@@ -28,7 +28,7 @@ async function authenticateExportRequest(request) {
   }
 
   const result = await db.query(
-    'SELECT id, name, export_api_key FROM stores WHERE id = $1 LIMIT 1',
+    'SELECT id, name, export_api_key, price_rule_percent FROM stores WHERE id = $1 LIMIT 1',
     [storeId]
   )
 
@@ -42,7 +42,14 @@ async function authenticateExportRequest(request) {
     return { ok: false, status: 401, error: 'Invalid API key for this store' }
   }
 
-  return { ok: true, store: { id: store.id, name: store.name } }
+  return {
+    ok: true,
+    store: {
+      id: store.id,
+      name: store.name,
+      price_rule_percent: store.price_rule_percent,
+    },
+  }
 }
 
 module.exports = { authenticateExportRequest }

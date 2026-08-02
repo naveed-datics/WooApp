@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS stores (
   consumer_key VARCHAR(255) NOT NULL,
   consumer_secret VARCHAR(255) NOT NULL,
   status VARCHAR(50) DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'syncing')),
+  price_rule_percent DECIMAL(6, 2) DEFAULT NULL,
   last_sync_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

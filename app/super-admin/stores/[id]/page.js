@@ -17,7 +17,7 @@ export default async function EditStorePage({ params }) {
   const { id } = await params
 
   const result = await db.query(
-    'SELECT id, name, store_url, consumer_key, consumer_secret, status, export_api_key, connection_method FROM stores WHERE id = $1',
+    'SELECT id, name, store_url, consumer_key, consumer_secret, status, export_api_key, connection_method, price_rule_percent FROM stores WHERE id = $1',
     [id]
   )
 

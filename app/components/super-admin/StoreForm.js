@@ -26,6 +26,10 @@ export default function StoreForm({ store = null }) {
     consumer_secret: store?.consumer_secret || '',
     status: store?.status || 'active',
     connection_method: store?.connection_method || 'api',
+    price_rule_percent:
+      store?.price_rule_percent === null || store?.price_rule_percent === undefined
+        ? ''
+        : String(store.price_rule_percent),
   })
   const [testingConnection, setTestingConnection] = useState(false)
   const [connectionResult, setConnectionResult] = useState(null)
@@ -250,6 +254,23 @@ export default function StoreForm({ store = null }) {
               </p>
             </div>
           )}
+
+          <div className="space-y-2">
+            <Label htmlFor="price_rule_percent">Price rule (%)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              id="price_rule_percent"
+              name="price_rule_percent"
+              value={formData.price_rule_percent}
+              onChange={handleChange}
+              placeholder="e.g. 40"
+              disabled={mutation.isPending}
+            />
+            <p className="text-sm text-muted-foreground">
+              Markup on Ralawise cost (e.g. 40 → sell at cost × 1.40). Empty = use cost as sell price.
+            </p>
+          </div>
 
           <div className="space-y-2">
             <Label htmlFor="status">

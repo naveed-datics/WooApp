@@ -22,10 +22,11 @@ export default async function ProductDetailPage({ params }) {
   }
 
   const storeResult = await db.query(
-    'SELECT connection_method FROM stores WHERE id = $1',
+    'SELECT connection_method, price_rule_percent FROM stores WHERE id = $1',
     [storeId]
   )
   const connectionMethod = storeResult.rows[0]?.connection_method
+  const priceRulePercent = storeResult.rows[0]?.price_rule_percent
 
   // Get product (approval is global - see export/products/route.js;
   // product_stores is joined only for this store's own woo_product_id)
@@ -69,6 +70,7 @@ export default async function ProductDetailPage({ params }) {
       <ProductDetail
         storeId={storeId}
         connectionMethod={connectionMethod}
+        priceRulePercent={priceRulePercent}
         product={product}
         variations={variationsResult.rows}
       />

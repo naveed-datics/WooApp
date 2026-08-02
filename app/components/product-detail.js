@@ -2,9 +2,11 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatMoney, resolveCostPrice, resolveStorePrice } from '@/app/lib/pricing'
 
-export default function ProductDetail({ storeId, connectionMethod, product, variations }) {
+export default function ProductDetail({ storeId, connectionMethod, priceRulePercent = null, product, variations }) {
   const isPluginStore = connectionMethod === 'plugin'
+  const storePricing = { price_rule_percent: priceRulePercent }
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -249,18 +251,39 @@ export default function ProductDetail({ storeId, connectionMethod, product, vari
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Price</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Cost (Ralawise)</label>
           {editMode ? (
             <input
               type="number"
               step="0.01"
-              value={formData.price || ''}
-              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+              value={formData.regular_price || formData.price || ''}
+              onChange={(e) => setFormData({
+                ...formData,
+                regular_price: e.target.value,
+                price: e.target.value,
+              })}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
             />
           ) : (
-            <p className="text-gray-900">${product.price || product.regular_price || '0.00'}</p>
+            <p className="text-gray-900">{formatMoney(resolveCostPrice(product))}</p>
           )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Store price</label>
+          <p className="text-gray-900 font-medium">
+            {formatMoney(resolveStorePrice(
+              editMode
+                ? { regular_price: formData.regular_price || formData.price, price: formData.price }
+                : product,
+              storePricing
+            ))}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {priceRulePercent !== null && priceRulePercent !== undefined && priceRulePercent !== ''
+              ? `Computed from cost with +${priceRulePercent}% markup`
+              : 'No price rule set — same as cost'}
+          </p>
         </div>
 
         <div>
@@ -289,7 +312,8 @@ export default function ProductDetail({ storeId, connectionMethod, product, vari
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Color</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Attributes</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cost</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store price</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax class</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Images</th>
@@ -312,7 +336,10 @@ export default function ProductDetail({ storeId, connectionMethod, product, vari
                       {variation.attributes || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      ${variation.price || variation.regular_price || '0.00'}
+                      {formatMoney(resolveCostPrice(variation))}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                      {formatMoney(resolveStorePrice(variation, storePricing))}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {variation.stock_quantity !== null ? variation.stock_quantity : '-'}

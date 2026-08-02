@@ -3,9 +3,26 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { applyPriceRule, formatMoney, resolveCostPrice, resolveStorePrice } from '@/app/lib/pricing'
 
-export default function ProductReview({ storeId, connectionMethod, products, status, currentPage, totalPages, total, limit = 50, search = '', brand = '', brands = [], canApprove = true, canSync = true }) {
+export default function ProductReview({
+  storeId,
+  connectionMethod,
+  priceRulePercent = null,
+  products,
+  status,
+  currentPage,
+  totalPages,
+  total,
+  limit = 50,
+  search = '',
+  brand = '',
+  brands = [],
+  canApprove = true,
+  canSync = true,
+}) {
   const isPluginStore = connectionMethod === 'plugin'
+  const storePricing = { price_rule_percent: priceRulePercent }
   const router = useRouter()
   const [loading, setLoading] = useState(null)
   const [error, setError] = useState('')
@@ -16,6 +33,13 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
   const [variantsData, setVariantsData] = useState({})
   const [selectedIds, setSelectedIds] = useState(new Set())
   const selectAllRef = useRef(null)
+
+  const getProductCost = (product) => {
+    if (product.min_cost_price !== null && product.min_cost_price !== undefined) {
+      return Number(product.min_cost_price)
+    }
+    return resolveCostPrice(product)
+  }
 
   useEffect(() => {
     setSelectedIds(new Set())
@@ -599,6 +623,12 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                 Variants
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Cost
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Store price
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -609,7 +639,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
           <tbody className="bg-white divide-y divide-gray-200">
             {products.length === 0 ? (
               <tr>
-                <td colSpan={showCheckboxColumn ? 8 : 7} className="px-6 py-4 text-center text-gray-500">
+                <td colSpan={showCheckboxColumn ? 10 : 9} className="px-6 py-4 text-center text-gray-500">
                   No products found.
                 </td>
               </tr>
@@ -670,6 +700,15 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                           <span className="text-gray-400">0</span>
                         )}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {formatMoney(getProductCost(product))}
+                        {variantCount > 0 ? (
+                          <span className="block text-xs text-gray-400">from</span>
+                        ) : null}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                        {formatMoney(applyPriceRule(getProductCost(product), priceRulePercent))}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {getStatusBadge(product.status)}
                       </td>
@@ -716,7 +755,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                     </tr>
                     {isExpanded && variantCount > 0 && (
                       <tr key={`${product.id}-variants`}>
-                        <td colSpan={showCheckboxColumn ? 7 : 6} className="px-6 py-4 bg-gray-50">
+                        <td colSpan={showCheckboxColumn ? 9 : 8} className="px-6 py-4 bg-gray-50">
                           <div className="ml-8">
                             <h4 className="text-sm font-semibold text-gray-700 mb-3">Variants ({variants.length})</h4>
                             {variants.length === 0 ? (
@@ -729,7 +768,8 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">SKU</th>
                                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Size</th>
                                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Color</th>
-                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Price</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Cost</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Store price</th>
                                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Stock</th>
                                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Status</th>
                                     </tr>
@@ -741,7 +781,10 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
                                         <td className="px-4 py-2 text-sm text-gray-500">{variant.size || '-'}</td>
                                         <td className="px-4 py-2 text-sm text-gray-500">{variant.color || '-'}</td>
                                         <td className="px-4 py-2 text-sm text-gray-500">
-                                          ${variant.price || variant.regular_price || '0.00'}
+                                          {formatMoney(resolveCostPrice(variant))}
+                                        </td>
+                                        <td className="px-4 py-2 text-sm text-gray-900 font-medium">
+                                          {formatMoney(resolveStorePrice(variant, storePricing))}
                                         </td>
                                         <td className="px-4 py-2 text-sm text-gray-500">
                                           {variant.stock_status || '-'}

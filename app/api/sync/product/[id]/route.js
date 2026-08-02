@@ -3,6 +3,7 @@ import { requireAdmin } from '../../../../lib/auth'
 import db from '../../../../lib/db'
 import { auth } from '../../../auth/[...nextauth]/route'
 import { requireStoreAdminApi, verifyAdminStoreAccess } from '../../../../lib/role-guards'
+import { resolveStorePrice } from '../../../../lib/pricing'
 
 const WooCommerceClient = require('../../../../lib/woocommerce')
 
@@ -53,7 +54,7 @@ export async function POST(request, { params }) {
 
     // Get store credentials
     const storeResult = await db.query(
-      'SELECT id, name, store_url, consumer_key, consumer_secret, connection_method FROM stores WHERE id = $1',
+      'SELECT id, name, store_url, consumer_key, consumer_secret, connection_method, price_rule_percent FROM stores WHERE id = $1',
       [store_id]
     )
 
@@ -363,7 +364,8 @@ export async function POST(request, { params }) {
 
       // For simple products, add pricing and stock
       if (!hasVariations) {
-        wooProductData.regular_price = product.regular_price?.toString() || product.price?.toString() || ''
+        const sellPrice = resolveStorePrice(product, store)
+        wooProductData.regular_price = sellPrice !== null ? sellPrice.toString() : ''
         wooProductData.sale_price = product.sale_price?.toString() || undefined
         wooProductData.manage_stock = product.manage_stock || (product.stock_quantity !== null)
         wooProductData.stock_quantity = product.stock_quantity || undefined
@@ -602,9 +604,10 @@ export async function POST(request, { params }) {
               }
             }
 
+            const sellPrice = resolveStorePrice(variation, store)
             const wooVariationData = {
               sku: variation.sku || undefined,
-              regular_price: variation.regular_price?.toString() || variation.price?.toString() || '',
+              regular_price: sellPrice !== null ? sellPrice.toString() : '',
               sale_price: variation.sale_price?.toString() || undefined,
               manage_stock: variation.manage_stock || (variation.stock_quantity !== null),
               stock_quantity: variation.stock_quantity || undefined,

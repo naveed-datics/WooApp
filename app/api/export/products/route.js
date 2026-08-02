@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { authenticateExportRequest } from '../../../lib/export-auth'
 import db from '../../../lib/db'
+import { resolveCostPrice, resolveStorePrice } from '../../../lib/pricing'
 
 const DEFAULT_LIMIT = 200
 const MAX_LIMIT = 500
@@ -13,12 +14,15 @@ function splitList(value) {
     .filter(Boolean)
 }
 
-function serializeVariation(row) {
+function serializeVariation(row, store) {
+  const cost = resolveCostPrice(row)
+  const sell = resolveStorePrice(row, store)
   return {
     sku: row.sku,
-    price: row.price,
-    regular_price: row.regular_price,
+    price: sell,
+    regular_price: sell,
     sale_price: row.sale_price,
+    cost_price: cost,
     stock_quantity: row.stock_quantity,
     manage_stock: row.manage_stock,
     stock_status: row.stock_status,
@@ -32,15 +36,18 @@ function serializeVariation(row) {
   }
 }
 
-function serializeProduct(row, variations) {
+function serializeProduct(row, variations, store) {
+  const cost = resolveCostPrice(row)
+  const sell = resolveStorePrice(row, store)
   return {
     sku: row.sku,
     name: row.name,
     description: row.description,
     short_description: row.short_description,
-    price: row.price,
-    regular_price: row.regular_price,
+    price: sell,
+    regular_price: sell,
     sale_price: row.sale_price,
+    cost_price: cost,
     stock_quantity: row.stock_quantity,
     manage_stock: row.manage_stock,
     stock_status: row.stock_status,
@@ -52,7 +59,7 @@ function serializeProduct(row, variations) {
     status: row.status,
     woo_product_id: row.woo_product_id,
     updated_at: row.updated_at,
-    variations: variations.map(serializeVariation),
+    variations: variations.map((v) => serializeVariation(v, store)),
   }
 }
 
@@ -67,6 +74,9 @@ function serializeProduct(row, variations) {
  * per-store): every authenticated store receives the same catalog.
  * `product_stores` is consulted only to attach this store's own
  * `woo_product_id`, which is per-store sync bookkeeping, not a gate.
+ *
+ * Prices: store markup rule is applied to Ralawise/CSV cost; regular_price
+ * in the payload is the sell (store) price. cost_price is the original.
  */
 export async function GET(request) {
   try {
@@ -130,7 +140,7 @@ export async function GET(request) {
     }
 
     const products = productsResult.rows.map((row) =>
-      serializeProduct(row, variationsByProduct[row.id] || [])
+      serializeProduct(row, variationsByProduct[row.id] || [], auth.store)
     )
 
     const nextOffset = offset + productsResult.rows.length

@@ -28,6 +28,10 @@ export async function POST(request) {
     const body = await request.json()
     const { name, store_url, consumer_key, consumer_secret, status } = body
     const connectionMethod = body.connection_method === 'plugin' ? 'plugin' : 'api'
+    const priceRulePercent =
+      body.price_rule_percent === '' || body.price_rule_percent === null || body.price_rule_percent === undefined
+        ? null
+        : Number(body.price_rule_percent)
 
     if (!name || !store_url) {
       return NextResponse.json(
@@ -43,12 +47,19 @@ export async function POST(request) {
       )
     }
 
+    if (priceRulePercent !== null && !Number.isFinite(priceRulePercent)) {
+      return NextResponse.json(
+        { error: 'Price rule percent must be a number' },
+        { status: 400 }
+      )
+    }
+
     const exportApiKey = crypto.randomBytes(24).toString('hex')
 
     const result = await db.query(
-      `INSERT INTO stores (name, store_url, consumer_key, consumer_secret, status, export_api_key, connection_method)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, store_url, status, connection_method, created_at`,
+      `INSERT INTO stores (name, store_url, consumer_key, consumer_secret, status, export_api_key, connection_method, price_rule_percent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, name, store_url, status, connection_method, price_rule_percent, created_at`,
       [
         name,
         store_url,
@@ -57,6 +68,7 @@ export async function POST(request) {
         status || 'active',
         exportApiKey,
         connectionMethod,
+        priceRulePercent,
       ]
     )
 

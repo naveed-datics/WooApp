@@ -29,7 +29,7 @@ export default async function ProductsPage({ params, searchParams }) {
   }
 
   const storeResult = await db.query(
-    'SELECT id, name, connection_method FROM stores WHERE id = $1',
+    'SELECT id, name, connection_method, price_rule_percent FROM stores WHERE id = $1',
     [storeId]
   )
 
@@ -84,13 +84,16 @@ export default async function ProductsPage({ params, searchParams }) {
     `SELECT p.id, p.sku, p.name, p.price, p.regular_price, p.sale_price, p.stock_quantity,
             p.status, p.created_at, p.reviewed_at, p.brand, ps.woo_product_id,
             COALESCE(v.variant_count, 0) as variant_count,
+            v.min_cost_price,
             ven.name AS vendor_name
      FROM products p
      LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $1
      LEFT JOIN vendors ven ON ven.id = p.vendor_id
      ${vendorJoin}
      LEFT JOIN (
-       SELECT product_id, COUNT(*) as variant_count
+       SELECT product_id,
+              COUNT(*) as variant_count,
+              MIN(COALESCE(regular_price, price)) as min_cost_price
        FROM product_variations
        GROUP BY product_id
      ) v ON v.product_id = p.id
@@ -136,6 +139,11 @@ export default async function ProductsPage({ params, searchParams }) {
           {isStoreAdmin ? 'Products' : 'Review Products'}
         </h1>
         <p className="text-gray-600 mt-1">Store: {store.name}</p>
+        {store.price_rule_percent !== null && store.price_rule_percent !== undefined && (
+          <p className="text-sm text-indigo-600 mt-1">
+            Price rule: +{store.price_rule_percent}% markup on cost
+          </p>
+        )}
         {isStoreAdmin && (
           <p className="text-sm text-gray-500 mt-1">
             Showing products from vendors assigned to this store.
@@ -145,6 +153,7 @@ export default async function ProductsPage({ params, searchParams }) {
       <ProductReview
         storeId={storeId}
         connectionMethod={store.connection_method}
+        priceRulePercent={store.price_rule_percent}
         products={productsResult.rows}
         status={status}
         currentPage={page}
