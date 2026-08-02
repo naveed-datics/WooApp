@@ -3,13 +3,16 @@ import db from '../../../../lib/db'
 import { auth } from '../../../auth/[...nextauth]/route'
 
 /**
- * Best-effort trigger for a "plugin" connection-method store: calls the
- * WooApp Connector plugin's own REST endpoint so an admin can pull
- * products in immediately instead of switching to wp-admin. Only works
- * when WooApp can reach the store's base URL over HTTP - "Import Now" in
- * wp-admin (or the plugin's own schedule) remains the reliable fallback
- * when it can't, since this plugin is designed around WooApp never
- * needing to reach into WordPress.
+ * "Export to Store" for plugin-connected stores.
+ *
+ * 1. Approves selected products (and bumps updated_at) so the WordPress
+ *    connector can pull them on the next import.
+ * 2. Best-effort: asks the store's /trigger-import endpoint to start a pull.
+ *
+ * Approval always succeeds even when WooApp cannot reach WordPress (common
+ * from Vercel → Hostinger). The plugin is designed for WP to call out to
+ * WooApp; inbound triggers are optional. Use wp-admin → Import Now or the
+ * connector schedule when the trigger cannot be reached.
  */
 export async function POST(request, { params }) {
   try {
@@ -65,6 +68,8 @@ export async function POST(request, { params }) {
       )
     }
 
+    let approvedCount = 0
+
     // Selected "Export to Store" products: approve pending/rejected ones so the
     // plugin pull can see them, and bump updated_at so incremental import
     // includes them even if they were already approved.
@@ -104,47 +109,45 @@ export async function POST(request, { params }) {
            AND status = 'pending'`,
         eligibleIds
       )
+
+      approvedCount = eligibleIds.length
     }
 
-    const triggerUrl = `${store.store_url.replace(/\/$/, '')}/wp-json/wooapp-connector/v1/trigger-import`
+    await db.query('UPDATE stores SET last_sync_at = CURRENT_TIMESTAMP WHERE id = $1', [storeId])
 
-    let response
+    const triggerUrl = `${store.store_url.replace(/\/$/, '')}/wp-json/wooapp-connector/v1/trigger-import`
+    let triggered = false
+    let triggerError = null
+    let progress = null
+    let syncedSkus = []
+
     try {
-      response = await fetch(triggerUrl, {
+      const response = await fetch(triggerUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': store.export_api_key,
         },
         body: JSON.stringify({ full_resync: fullResync }),
-        signal: AbortSignal.timeout(30000),
+        // WP now queues and returns immediately; keep this short so Vercel
+        // does not sit on a blocked Hostinger connection for 30s+.
+        signal: AbortSignal.timeout(12000),
       })
+
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        triggerError =
+          data?.message || `WordPress rejected the trigger request (HTTP ${response.status}).`
+      } else {
+        triggered = true
+        progress = data
+        syncedSkus = Array.isArray(data?.synced_skus) ? data.synced_skus.filter(Boolean) : []
+      }
     } catch (fetchError) {
-      return NextResponse.json(
-        {
-          error: `Could not reach ${store.store_url} (${fetchError.message}). If this store isn't reachable from WooApp, use "Import Now" in that site's wp-admin → WooApp Connector instead.`,
-        },
-        { status: 502 }
-      )
+      triggerError = `Could not reach ${store.store_url} (${fetchError.message}).`
     }
 
-    const data = await response.json().catch(() => null)
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data?.message || `WordPress rejected the trigger request (HTTP ${response.status}).` },
-        { status: response.status }
-      )
-    }
-
-    await db.query('UPDATE stores SET last_sync_at = CURRENT_TIMESTAMP WHERE id = $1', [storeId])
-
-    // WordPress reports back exactly which SKUs it created/updated this
-    // run - mark only those as synced. Upsert, not update: a brand-new
-    // store has no pre-existing product_stores rows at all yet, since
-    // approval is now global (see export/products/route.js) rather than
-    // seeded per-store at CSV-import time.
-    const syncedSkus = Array.isArray(data.synced_skus) ? data.synced_skus.filter(Boolean) : []
     if (syncedSkus.length > 0) {
       await db.query(
         `INSERT INTO product_stores (product_id, store_id, status)
@@ -155,7 +158,35 @@ export async function POST(request, { params }) {
       )
     }
 
-    return NextResponse.json({ message: 'Import triggered successfully', progress: data, syncedCount: syncedSkus.length })
+    // Products are ready for pull even when the inbound trigger fails —
+    // that is the supported architecture for plugin stores.
+    if (!triggered) {
+      const readyMsg =
+        approvedCount > 0
+          ? `${approvedCount} product(s) approved and ready for WordPress to pull.`
+          : 'Products are ready for WordPress to pull.'
+
+      return NextResponse.json({
+        ok: true,
+        triggered: false,
+        approvedCount,
+        syncedCount: 0,
+        message: `${readyMsg} ${triggerError || 'Trigger unavailable.'} Open that site's wp-admin → WooApp Connector → Import Now (or wait for the scheduled sync).`,
+        triggerError,
+      })
+    }
+
+    return NextResponse.json({
+      ok: true,
+      triggered: true,
+      approvedCount,
+      syncedCount: syncedSkus.length,
+      message:
+        approvedCount > 0
+          ? `${approvedCount} product(s) approved. Import queued on the store.`
+          : 'Import queued on the store.',
+      progress,
+    })
   } catch (error) {
     console.error('Error triggering import:', error)
     return NextResponse.json(

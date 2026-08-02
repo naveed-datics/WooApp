@@ -241,10 +241,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
           throw new Error(data.error || 'Failed to export products to store')
         }
 
-        const progress = data.progress || {}
-        setSuccess(
-          `Exported to store! ${progress.created ?? 0} created, ${progress.updated ?? 0} updated, ${data.syncedCount ?? 0} marked synced.`
-        )
+        setSuccess(data.message || 'Products approved and ready for the store to import.')
       } else {
         let succeeded = 0
         let failed = 0
