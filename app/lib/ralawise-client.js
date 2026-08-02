@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 const AdmZip = require('adm-zip')
 
 const PARENT_CSV_NAME = 'wordpressdatafullparent.csv'
@@ -7,6 +8,25 @@ const VARIATIONS_CSV_NAME = 'wordpressdatafullvariations.csv'
 const WORDPRESS_DATA_URL =
   'https://shop.ralawise.com/marketing-hub/web-data/wordpress/'
 const RALAWISE_HOME = 'https://shop.ralawise.com/'
+
+/**
+ * Writable temp root for Ralawise downloads.
+ * Vercel/Lambda only allow writes under os.tmpdir() (/tmp), not process.cwd().
+ */
+function getRalawiseTempRoot() {
+  if (
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.RALAWISE_USE_OS_TMP === '1'
+  ) {
+    return path.join(os.tmpdir(), 'ralawise')
+  }
+  return path.join(process.cwd(), 'tmp', 'ralawise')
+}
+
+function getRalawiseWorkDir(prefix = 'run') {
+  return path.join(getRalawiseTempRoot(), `${prefix}-${Date.now()}`)
+}
 
 /**
  * Download a ZIP from url and validate it is not an HTML/unauthorized response.
@@ -119,9 +139,7 @@ async function reportProgress(onProgress, payload) {
  * Download parent + variations ZIPs via public URLs and write CSVs to workDir.
  */
 async function downloadCatalog({ parentUrl, variationsUrl, workDir, onProgress }) {
-  const dir =
-    workDir ||
-    path.join(process.cwd(), 'tmp', 'ralawise', `run-${Date.now()}`)
+  const dir = workDir || getRalawiseWorkDir('run')
 
   ensureDir(dir)
 
@@ -349,9 +367,7 @@ async function downloadCatalogWithHttp({
     )
   }
 
-  const dir =
-    workDir ||
-    path.join(process.cwd(), 'tmp', 'ralawise', `run-${Date.now()}`)
+  const dir = workDir || getRalawiseWorkDir('run')
   ensureDir(dir)
 
   await reportProgress(onProgress, {
@@ -586,9 +602,7 @@ async function downloadCatalogWithPlaywright({
     )
   }
 
-  const dir =
-    workDir ||
-    path.join(process.cwd(), 'tmp', 'ralawise', `run-${Date.now()}`)
+  const dir = workDir || getRalawiseWorkDir('run')
   ensureDir(dir)
 
   await reportProgress(onProgress, {
@@ -756,6 +770,8 @@ module.exports = {
   downloadZip,
   extractCsvFromZip,
   getEnvDownloadUrls,
+  getRalawiseTempRoot,
+  getRalawiseWorkDir,
   resolveRalawiseDownloadUrls,
   scrapeDownloadUrlsWithPlaywright,
   fetchRalawiseCatalog,

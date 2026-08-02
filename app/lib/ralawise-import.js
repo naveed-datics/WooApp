@@ -8,6 +8,8 @@ const {
   downloadCatalog,
   PARENT_CSV_NAME,
   VARIATIONS_CSV_NAME,
+  getRalawiseTempRoot,
+  getRalawiseWorkDir,
 } = require('./ralawise-client')
 
 async function reportProgress(onProgress, payload) {
@@ -65,7 +67,7 @@ async function failCsvUpload(db, csvUploadId, message) {
 }
 
 function lastImportDir(vendorId) {
-  return path.join(process.cwd(), 'tmp', 'ralawise', 'last', `vendor-${vendorId}`)
+  return path.join(getRalawiseTempRoot(), 'last', `vendor-${vendorId}`)
 }
 
 function lastImportPaths(vendorId) {
@@ -204,18 +206,14 @@ async function runRalawiseImport({
         catalog = await downloadCatalog({
           parentUrl: urls.parentUrl,
           variationsUrl: urls.variationsUrl,
-          workDir:
-            workDir ||
-            path.join(process.cwd(), 'tmp', 'ralawise', `import-${Date.now()}`),
+          workDir: workDir || getRalawiseWorkDir('import'),
           onProgress,
         })
         productsText = catalog.parentCsvText
         variationsText = catalog.variationsCsvText
       } else {
         catalog = await fetchRalawiseCatalog({
-          workDir:
-            workDir ||
-            path.join(process.cwd(), 'tmp', 'ralawise', `import-${Date.now()}`),
+          workDir: workDir || getRalawiseWorkDir('import'),
           forcePlaywright,
           onProgress,
         })
