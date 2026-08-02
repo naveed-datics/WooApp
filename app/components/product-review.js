@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -15,10 +15,11 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
   const [expandedProducts, setExpandedProducts] = useState(new Set())
   const [variantsData, setVariantsData] = useState({})
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const selectAllRef = useRef(null)
 
   useEffect(() => {
     setSelectedIds(new Set())
-  }, [products])
+  }, [storeId])
 
   const buildQuery = ({ page: newPage, newLimit, newSearch, newBrand }) => {
     const params = new URLSearchParams()
@@ -208,14 +209,14 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
   }
 
   const handleExportToStore = async () => {
-    const selectedProducts = products.filter((p) => selectedIds.has(p.id))
+    const productIds = Array.from(selectedIds)
 
-    if (selectedProducts.length === 0) {
+    if (productIds.length === 0) {
       alert('No products selected')
       return
     }
 
-    if (!confirm(`Export ${selectedProducts.length} selected product(s) to the store?`)) {
+    if (!confirm(`Export ${productIds.length} selected product(s) to the store?`)) {
       return
     }
 
@@ -230,7 +231,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             full_resync: false,
-            product_ids: selectedProducts.map((p) => p.id),
+            product_ids: productIds,
           }),
         })
 
@@ -248,9 +249,9 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
         let succeeded = 0
         let failed = 0
 
-        for (const product of selectedProducts) {
+        for (const productId of productIds) {
           try {
-            const response = await fetch(`/api/sync/product/${product.id}`, {
+            const response = await fetch(`/api/sync/product/${productId}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ store_id: storeId }),
@@ -319,27 +320,40 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
   }
 
   const isAllSelected = products.length > 0 && products.every((p) => selectedIds.has(p.id))
-  const isSomeSelected = products.some((p) => selectedIds.has(p.id))
+  const isPagePartiallySelected = products.some((p) => selectedIds.has(p.id)) && !isAllSelected
+  const hasSelection = selectedIds.size > 0
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = isPagePartiallySelected
+    }
+  }, [isPagePartiallySelected])
 
   const toggleSelectAll = () => {
+    const newSelected = new Set(selectedIds)
     if (isAllSelected) {
-      setSelectedIds(new Set())
+      products.forEach((p) => newSelected.delete(p.id))
     } else {
-      setSelectedIds(new Set(products.map((p) => p.id)))
+      products.forEach((p) => newSelected.add(p.id))
     }
+    setSelectedIds(newSelected)
+  }
+
+  const clearAllSelection = () => {
+    setSelectedIds(new Set())
   }
 
   const showCheckboxColumn = canApprove || canSync
 
   const handleBulkSelectedAction = async (action) => {
-    const selectedProducts = products.filter((p) => selectedIds.has(p.id) && p.status === 'pending')
+    const productIds = Array.from(selectedIds)
 
-    if (selectedProducts.length === 0) {
-      alert('No pending products selected')
+    if (productIds.length === 0) {
+      alert('No products selected')
       return
     }
 
-    if (!confirm(`Are you sure you want to ${action} ${selectedProducts.length} selected products?`)) {
+    if (!confirm(`Are you sure you want to ${action} ${productIds.length} selected products?`)) {
       return
     }
 
@@ -352,7 +366,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productIds: selectedProducts.map((p) => p.id),
+          productIds,
           status: action === 'approve' ? 'approved' : 'rejected',
           store_id: storeId,
         }),
@@ -427,7 +441,7 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
         </div>
         {status === 'pending' && canApprove && (
           <div className="flex space-x-2">
-            {isSomeSelected && (
+            {hasSelection && (
               <>
                 <button
                   onClick={() => handleBulkSelectedAction('approve')}
@@ -514,14 +528,29 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
           )}
         </div>
 
-        {isSomeSelected && canSync && (
-          <button
-            onClick={handleExportToStore}
-            disabled={loading === 'bulk'}
-            className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium whitespace-nowrap"
-          >
-            {loading === 'bulk' ? 'Exporting...' : `Export to Store (${selectedIds.size})`}
-          </button>
+        {hasSelection && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600 whitespace-nowrap">
+              {selectedIds.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={clearAllSelection}
+              disabled={loading === 'bulk'}
+              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50 font-medium whitespace-nowrap"
+            >
+              Clear Selection
+            </button>
+            {canSync && (
+              <button
+                onClick={handleExportToStore}
+                disabled={loading === 'bulk'}
+                className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium whitespace-nowrap"
+              >
+                {loading === 'bulk' ? 'Exporting...' : `Export to Store (${selectedIds.size})`}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -548,10 +577,11 @@ export default function ProductReview({ storeId, connectionMethod, products, sta
               {showCheckboxColumn && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
                   <input
+                    ref={selectAllRef}
                     type="checkbox"
                     checked={isAllSelected}
                     onChange={toggleSelectAll}
-                    aria-label="Select all products"
+                    aria-label="Select all products on this page"
                     className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                   />
                 </th>
