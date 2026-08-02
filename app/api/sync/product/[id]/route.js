@@ -34,10 +34,11 @@ export async function POST(request, { params }) {
     const productResult = await db.query(
       `SELECT p.id, p.sku, p.name, p.description, p.short_description, p.price, p.regular_price,
               p.sale_price, p.stock_quantity, p.manage_stock, p.stock_status, p.categories, p.tags, p.images,
-              p.attributes, ps.woo_product_id, p.status
+              p.attributes, p.brand, ps.woo_product_id, p.status, ven.name AS vendor_name
        FROM products p
        INNER JOIN vendor_stores vs ON vs.vendor_id = p.vendor_id AND vs.store_id = $2
        LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $2
+       LEFT JOIN vendors ven ON ven.id = p.vendor_id
        WHERE p.id = $1`,
       [productId, store_id]
     )
@@ -255,8 +256,37 @@ export async function POST(request, { params }) {
             options: Array.from(values).sort(), // Sort options for consistency
           })
         }
-        
+
         return wooAttributes
+      }
+
+      const appendProductLevelAttributes = (wooAttributes = []) => {
+        const attributes = [...wooAttributes]
+        let position = attributes.length
+
+        if (product.brand) {
+          attributes.push({
+            id: 0,
+            name: 'Brand',
+            position: position++,
+            visible: true,
+            variation: false,
+            options: [product.brand],
+          })
+        }
+
+        if (product.vendor_name) {
+          attributes.push({
+            id: 0,
+            name: 'Vendor',
+            position: position++,
+            visible: true,
+            variation: false,
+            options: [product.vendor_name],
+          })
+        }
+
+        return attributes
       }
 
       // ✅ STEP 0: Create categories if provided (before creating product)
@@ -361,6 +391,15 @@ export async function POST(request, { params }) {
         }
       }
 
+      // Simple products get Brand/Vendor on create; variable products set them in STEP 2
+      // alongside Colour/Size so a later attributes update does not wipe brand.
+      if (!hasVariations) {
+        const productLevelAttributes = appendProductLevelAttributes([])
+        if (productLevelAttributes.length > 0) {
+          wooProductData.attributes = productLevelAttributes
+        }
+      }
+
       let wooProduct
 
       // Create or update product (STEP 1)
@@ -419,8 +458,10 @@ export async function POST(request, { params }) {
           allVariationsForAttributes = attrResult.rows
         }
         
-        const wooAttributes = extractAttributesFromVariations(allVariationsForAttributes)
-        
+        const wooAttributes = appendProductLevelAttributes(
+          extractAttributesFromVariations(allVariationsForAttributes)
+        )
+
         if (wooAttributes.length > 0) {
           // Update product with attributes
           const attributesUpdate = {
@@ -432,6 +473,12 @@ export async function POST(request, { params }) {
         } else {
           console.warn(`⚠ Variable product ${product.name} has no attributes extracted from variations`)
         }
+      } else if (!hasVariations && (product.brand || product.vendor_name) && wooProduct?.id) {
+        // Ensure Brand/Vendor stick on update of existing simple products
+        const productLevelAttributes = appendProductLevelAttributes([])
+        wooProduct = await wooClient.updateProduct(wooProduct.id, {
+          attributes: productLevelAttributes,
+        })
       }
 
       // ✅ STEP 3: Create Variations using Batch Endpoint
