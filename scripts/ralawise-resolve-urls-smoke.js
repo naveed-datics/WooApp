@@ -1,29 +1,38 @@
 /**
- * Smoke test: fetch Ralawise catalog via env URL or Playwright login download.
+ * Smoke test: fetch Ralawise catalog via env URL, HTTP login, or Playwright.
  *
  * Usage:
  *   node scripts/ralawise-resolve-urls-smoke.js
- *   node scripts/ralawise-resolve-urls-smoke.js --force-scrape
+ *   node scripts/ralawise-resolve-urls-smoke.js --force-http
+ *   node scripts/ralawise-resolve-urls-smoke.js --force-scrape   # Playwright (local only)
  */
 const path = require('path')
 require('dotenv').config({ path: path.join(__dirname, '../.env.local') })
 require('dotenv').config({ path: path.join(__dirname, '../.env') })
 
-const { fetchRalawiseCatalog, parseCSV } = (() => {
-  const client = require('../app/lib/ralawise-client')
-  const { parseCSV } = require('../app/lib/csv-parser')
-  return { ...client, parseCSV }
-})()
+const {
+  fetchRalawiseCatalog,
+  downloadCatalogWithHttp,
+} = require('../app/lib/ralawise-client')
+const { parseCSV } = require('../app/lib/csv-parser')
 
 async function main() {
   const forcePlaywright = process.argv.includes('--force-scrape')
-  console.log(
-    forcePlaywright
-      ? 'Fetching catalog via Playwright login…'
-      : 'Fetching catalog (env URL, Playwright fallback)…'
-  )
+  const forceHttp = process.argv.includes('--force-http')
 
-  const catalog = await fetchRalawiseCatalog({ forcePlaywright })
+  let catalog
+  if (forceHttp) {
+    console.log('Fetching catalog via HTTP login…')
+    catalog = await downloadCatalogWithHttp()
+  } else {
+    console.log(
+      forcePlaywright
+        ? 'Fetching catalog via Playwright login…'
+        : 'Fetching catalog (env URL → HTTP login → Playwright fallback)…'
+    )
+    catalog = await fetchRalawiseCatalog({ forcePlaywright })
+  }
+
   console.log('Source:', catalog.source)
   console.log('Work dir:', catalog.workDir)
 

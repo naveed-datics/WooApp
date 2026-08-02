@@ -199,6 +199,265 @@ async function isZipUrlUsable(url) {
   }
 }
 
+function isVercelRuntime() {
+  return Boolean(process.env.VERCEL || process.env.VERCEL_ENV)
+}
+
+function canUsePlaywright() {
+  // Chromium is not viable on Vercel serverless — use HTTP login instead.
+  if (isVercelRuntime()) return false
+  if (process.env.RALAWISE_DISABLE_PLAYWRIGHT === '1') return false
+  try {
+    require.resolve('playwright')
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Simple cookie jar for Node fetch (Set-Cookie → Cookie header).
+ */
+class CookieJar {
+  constructor() {
+    this.cookies = new Map()
+  }
+
+  absorb(response) {
+    const list =
+      typeof response.headers.getSetCookie === 'function'
+        ? response.headers.getSetCookie()
+        : []
+    for (const raw of list) {
+      const [pair] = String(raw).split(';')
+      const eq = pair.indexOf('=')
+      if (eq <= 0) continue
+      const name = pair.slice(0, eq).trim()
+      const value = pair.slice(eq + 1).trim()
+      if (name) this.cookies.set(name, value)
+    }
+  }
+
+  header() {
+    return [...this.cookies.entries()].map(([k, v]) => `${k}=${v}`).join('; ')
+  }
+
+  get(name) {
+    return this.cookies.get(name) || ''
+  }
+}
+
+function extractLoginVerificationToken(html) {
+  const forms = [
+    ...String(html).matchAll(
+      /<form[^>]*class="[^"]*login-form[^"]*"[^>]*>[\s\S]*?<\/form>/gi
+    ),
+  ]
+  for (const form of forms) {
+    if (!form[0].includes('id="EmailAddress"')) continue
+    const match = form[0].match(
+      /name="__RequestVerificationToken"[^>]*value="([^"]+)"/i
+    )
+    if (match?.[1]) return match[1]
+  }
+  const fallback = String(html).match(
+    /name="__RequestVerificationToken"[^>]*value="([^"]+)"/i
+  )
+  return fallback?.[1] || null
+}
+
+function extractDownloadUrlsFromHtml(html) {
+  const hrefs = [...String(html).matchAll(/href=["']([^"']+)["']/gi)].map(
+    (m) => m[1]
+  )
+  const parentHref =
+    hrefs.find((h) => /wordpressdatafullparent/i.test(h)) ||
+    hrefs.find(
+      (h) => /webdatadownloads/i.test(h) && /parent/i.test(h) && /\.zip/i.test(h)
+    )
+  const variationsHref =
+    hrefs.find((h) => /wordpressdatafullvariations/i.test(h)) ||
+    hrefs.find(
+      (h) =>
+        /webdatadownloads/i.test(h) && /variation/i.test(h) && /\.zip/i.test(h)
+    )
+
+  if (!parentHref || !variationsHref) {
+    throw new Error(
+      'Could not find Ralawise WordPress download links after HTTP login'
+    )
+  }
+
+  return {
+    parentUrl: toAbsoluteUrl(parentHref),
+    variationsUrl: toAbsoluteUrl(variationsHref),
+  }
+}
+
+async function downloadZipWithCookies(url, label, jar) {
+  const response = await fetch(url, {
+    redirect: 'follow',
+    headers: {
+      Accept: 'application/zip,application/x-zip-compressed,*/*',
+      'User-Agent': 'WooApp-RalawiseSync/1.0',
+      Cookie: jar.header(),
+      Referer: WORDPRESS_DATA_URL,
+    },
+  })
+  jar.absorb(response)
+
+  const contentType = (response.headers.get('content-type') || '').toLowerCase()
+  const finalUrl = response.url || url
+
+  if (!response.ok) {
+    throw new Error(
+      `Authenticated download failed for ${label}: HTTP ${response.status}`
+    )
+  }
+  if (
+    contentType.includes('text/html') ||
+    finalUrl.includes('unauthorize') ||
+    finalUrl.includes('transit-unauthorized')
+  ) {
+    throw new Error(
+      `Unauthorized download for ${label}. Check RALAWISE_EMAIL / RALAWISE_PASSWORD.`
+    )
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer())
+  if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
+    throw new Error(
+      `Authenticated download for ${label} did not return a ZIP (login may have failed)`
+    )
+  }
+  return buffer
+}
+
+/**
+ * Vercel-safe path: form POST login + HTML scrape + cookie ZIP download.
+ * No Chromium / Playwright required.
+ */
+async function downloadCatalogWithHttp({
+  email = process.env.RALAWISE_EMAIL,
+  password = process.env.RALAWISE_PASSWORD,
+  workDir,
+  onProgress,
+} = {}) {
+  if (!email || !password) {
+    throw new Error(
+      'RALAWISE_EMAIL and RALAWISE_PASSWORD are required to refresh download links'
+    )
+  }
+
+  const dir =
+    workDir ||
+    path.join(process.cwd(), 'tmp', 'ralawise', `run-${Date.now()}`)
+  ensureDir(dir)
+
+  await reportProgress(onProgress, {
+    step: 'connecting',
+    message: 'Connecting to Ralawise (HTTP)…',
+  })
+
+  const jar = new CookieJar()
+  const home = await fetch(RALAWISE_HOME, {
+    redirect: 'follow',
+    headers: {
+      Accept: 'text/html',
+      'User-Agent': 'WooApp-RalawiseSync/1.0',
+    },
+  })
+  jar.absorb(home)
+  const homeHtml = await home.text()
+  const token =
+    extractLoginVerificationToken(homeHtml) ||
+    jar.get('__RequestVerificationToken')
+
+  if (!token) {
+    throw new Error('Could not read Ralawise login verification token')
+  }
+
+  const form = new URLSearchParams({
+    EmailAddress: email,
+    Password: password,
+    Login: '',
+    __RequestVerificationToken: token,
+  })
+
+  const login = await fetch(
+    'https://shop.ralawise.com/Services/Authentication/SignIn',
+    {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        'User-Agent': 'WooApp-RalawiseSync/1.0',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json, text/plain, */*',
+        Cookie: jar.header(),
+        'X-Requested-With': 'XMLHttpRequest',
+        Origin: 'https://shop.ralawise.com',
+        Referer: RALAWISE_HOME,
+      },
+      body: form.toString(),
+    }
+  )
+  jar.absorb(login)
+
+  let loginJson
+  try {
+    loginJson = await login.json()
+  } catch {
+    throw new Error(
+      `Ralawise HTTP login failed (HTTP ${login.status}). Check credentials.`
+    )
+  }
+
+  if (!loginJson?.Success) {
+    throw new Error(
+      loginJson?.Message ||
+        'Ralawise HTTP login failed — check RALAWISE_EMAIL / RALAWISE_PASSWORD'
+    )
+  }
+
+  const page = await fetch(WORDPRESS_DATA_URL, {
+    redirect: 'follow',
+    headers: {
+      Accept: 'text/html',
+      'User-Agent': 'WooApp-RalawiseSync/1.0',
+      Cookie: jar.header(),
+      Referer: RALAWISE_HOME,
+    },
+  })
+  jar.absorb(page)
+  const pageHtml = await page.text()
+  const finalPageUrl = page.url || WORDPRESS_DATA_URL
+
+  if (!page.ok || finalPageUrl.includes('unauthorize')) {
+    throw new Error(
+      'Ralawise login session rejected — check RALAWISE_EMAIL / RALAWISE_PASSWORD'
+    )
+  }
+
+  const urls = extractDownloadUrlsFromHtml(pageHtml)
+
+  await reportProgress(onProgress, {
+    step: 'downloading',
+    message: 'Downloading latest catalog ZIPs…',
+  })
+
+  const [parentZip, variationsZip] = await Promise.all([
+    downloadZipWithCookies(urls.parentUrl, 'products', jar),
+    downloadZipWithCookies(urls.variationsUrl, 'variations', jar),
+  ])
+
+  return {
+    ...writeCatalogFromZips({ dir, parentZip, variationsZip }),
+    parentUrl: urls.parentUrl,
+    variationsUrl: urls.variationsUrl,
+    source: 'http',
+  }
+}
+
 async function launchBrowser(chromium) {
   try {
     return await chromium.launch({ headless: true })
@@ -368,13 +627,52 @@ async function downloadCatalogWithPlaywright({
   }
 }
 
-/** @deprecated use downloadCatalogWithPlaywright for authenticated downloads */
+/** @deprecated use downloadCatalogAuthenticated / downloadCatalogWithHttp */
 async function scrapeDownloadUrlsWithPlaywright(opts = {}) {
-  const catalog = await downloadCatalogWithPlaywright(opts)
+  const catalog = await downloadCatalogAuthenticated(opts)
   return {
     parentUrl: catalog.parentUrl,
     variationsUrl: catalog.variationsUrl,
-    source: 'playwright',
+    source: catalog.source,
+  }
+}
+
+/**
+ * Authenticated catalog fetch: HTTP login first (Vercel-safe), Playwright only locally.
+ */
+async function downloadCatalogAuthenticated({
+  workDir,
+  onProgress,
+  forcePlaywright = false,
+} = {}) {
+  const hasCreds =
+    Boolean(process.env.RALAWISE_EMAIL) && Boolean(process.env.RALAWISE_PASSWORD)
+  if (!hasCreds) {
+    throw new Error(
+      'Missing or expired Ralawise download URLs. Set fresh RALAWISE_PARENT_URL / RALAWISE_VARIATIONS_URL, or RALAWISE_EMAIL / RALAWISE_PASSWORD.'
+    )
+  }
+
+  if (forcePlaywright) {
+    if (!canUsePlaywright()) {
+      throw new Error(
+        'Playwright is unavailable on this runtime (Vercel). Use HTTP login credentials or env ZIP URLs.'
+      )
+    }
+    return downloadCatalogWithPlaywright({ workDir, onProgress })
+  }
+
+  try {
+    return await downloadCatalogWithHttp({ workDir, onProgress })
+  } catch (httpError) {
+    if (!canUsePlaywright()) {
+      throw httpError
+    }
+    console.warn(
+      'Ralawise HTTP login failed, falling back to Playwright:',
+      httpError.message
+    )
+    return downloadCatalogWithPlaywright({ workDir, onProgress })
   }
 }
 
@@ -394,11 +692,11 @@ async function resolveRalawiseDownloadUrls({ forceScrape = false } = {}) {
   }
 
   if (process.env.RALAWISE_EMAIL && process.env.RALAWISE_PASSWORD) {
-    const catalog = await downloadCatalogWithPlaywright()
+    const catalog = await downloadCatalogAuthenticated()
     return {
       parentUrl: catalog.parentUrl,
       variationsUrl: catalog.variationsUrl,
-      source: 'playwright',
+      source: catalog.source,
       // Attached so import can skip a second download when scrape already fetched
       _catalog: catalog,
     }
@@ -410,7 +708,7 @@ async function resolveRalawiseDownloadUrls({ forceScrape = false } = {}) {
 }
 
 /**
- * Preferred entry: try public env URLs, else Playwright authenticated download.
+ * Preferred entry: env ZIP URLs → HTTP login (Vercel) → Playwright (local only).
  */
 async function fetchRalawiseCatalog({
   workDir,
@@ -437,18 +735,24 @@ async function fetchRalawiseCatalog({
         throw envError
       }
       console.warn(
-        'Env Ralawise URLs failed, falling back to Playwright login:',
+        'Env Ralawise URLs failed, falling back to authenticated login:',
         envError.message
       )
     }
   }
 
-  return downloadCatalogWithPlaywright({ workDir, onProgress })
+  return downloadCatalogAuthenticated({
+    workDir,
+    onProgress,
+    forcePlaywright,
+  })
 }
 
 module.exports = {
   downloadCatalog,
+  downloadCatalogWithHttp,
   downloadCatalogWithPlaywright,
+  downloadCatalogAuthenticated,
   downloadZip,
   extractCsvFromZip,
   getEnvDownloadUrls,
@@ -456,6 +760,8 @@ module.exports = {
   scrapeDownloadUrlsWithPlaywright,
   fetchRalawiseCatalog,
   isZipUrlUsable,
+  canUsePlaywright,
+  isVercelRuntime,
   PARENT_CSV_NAME,
   VARIATIONS_CSV_NAME,
 }
