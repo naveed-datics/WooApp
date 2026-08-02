@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
-import db from '../../../../../lib/db'
-import { auth } from '../../../../auth/[...nextauth]/route'
+import db from '../../../../lib/db'
+import { auth } from '../../../auth/[...nextauth]/route'
 import {
   requireAdminOrSuperAdminApi,
   verifyAdminStoreAccess,
-} from '../../../../../lib/role-guards'
-import { getStorePricingContext } from '../../../../../lib/app-settings'
-import { parsePriceRuleInput } from '../../../../../lib/pricing'
+} from '../../../../lib/role-guards'
+import { getStorePricingContext } from '../../../../lib/app-settings'
+import { parsePriceRuleInput } from '../../../../lib/pricing'
 
 /**
  * GET /api/stores/[id]/price-rule — effective + override + default for a store.

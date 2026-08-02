@@ -1,8 +1,8 @@
-import { requireAdmin } from '../../../../../lib/auth'
-import db from '../../../../../lib/db'
+import { requireAdmin } from '../../../../lib/auth'
+import db from '../../../../lib/db'
 import { redirect } from 'next/navigation'
-import { getStorePricingContext } from '../../../../../lib/app-settings'
-import StorePriceRuleSettings from '../../../../../components/StorePriceRuleSettings'
+import { getStorePricingContext } from '../../../../lib/app-settings'
+import StorePriceRuleSettings from '../../../../components/StorePriceRuleSettings'
 
 export default async function StoreSettingsPage({ params }) {
   const session = await requireAdmin()
