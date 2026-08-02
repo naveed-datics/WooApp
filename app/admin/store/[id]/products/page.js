@@ -14,6 +14,7 @@ export default async function ProductsPage({ params, searchParams }) {
   const page = parseInt(resolvedSearchParams?.page || '1')
   const limit = parseInt(resolvedSearchParams?.limit || '50')
   const search = resolvedSearchParams?.search || ''
+  const brand = resolvedSearchParams?.brand || ''
   const offset = (page - 1) * limit
 
   if (isStoreAdmin) {
@@ -62,6 +63,12 @@ export default async function ProductsPage({ params, searchParams }) {
       paramIndex++
     }
 
+    if (brand && brand.trim()) {
+      parts.push(`p.brand = $${paramIndex}`)
+      params.push(brand.trim())
+      paramIndex++
+    }
+
     return { parts, params, nextIndex: paramIndex }
   }
 
@@ -75,7 +82,7 @@ export default async function ProductsPage({ params, searchParams }) {
 
   const productsResult = await db.query(
     `SELECT p.id, p.sku, p.name, p.price, p.regular_price, p.sale_price, p.stock_quantity,
-            p.status, p.created_at, p.reviewed_at, ps.woo_product_id,
+            p.status, p.created_at, p.reviewed_at, p.brand, ps.woo_product_id,
             COALESCE(v.variant_count, 0) as variant_count,
             ven.name AS vendor_name
      FROM products p
@@ -125,6 +132,16 @@ export default async function ProductsPage({ params, searchParams }) {
   const total = parseInt(countResult.rows[0].total)
   const totalPages = Math.ceil(total / limit)
 
+  const brandsResult = await db.query(
+    `SELECT DISTINCT p.brand
+     FROM products p
+     ${vendorJoin}
+     WHERE p.brand IS NOT NULL AND p.brand != ''
+     ORDER BY p.brand ASC`,
+    isStoreAdmin ? [storeId] : []
+  )
+  const brands = brandsResult.rows.map((row) => row.brand)
+
   return (
     <div>
       <div className="mb-6">
@@ -148,6 +165,8 @@ export default async function ProductsPage({ params, searchParams }) {
         total={total}
         limit={limit}
         search={search}
+        brand={brand}
+        brands={brands}
         approvedProductsCount={approvedProductsCount}
         userRole={session.user.role}
         canApprove={!isStoreAdmin}

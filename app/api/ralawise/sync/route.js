@@ -5,13 +5,11 @@ import {
   requireAdminOrSuperAdminApi,
   verifyAdminStoreAccess,
 } from '../../../lib/role-guards'
-import { runRalawiseImport } from '../../../lib/ralawise-import'
 import {
   JOB_STATUS,
   createSyncJob,
-  updateSyncJob,
-  makeJobProgressUpdater,
 } from '../../../lib/ralawise-sync-jobs'
+import { runSyncJobWorker } from '../../../lib/ralawise-sync-runner'
 
 export const maxDuration = 300
 export const runtime = 'nodejs'
@@ -71,54 +69,7 @@ export async function POST(request) {
     })
 
     after(async () => {
-      const onProgress = makeJobProgressUpdater(db, job.id)
-      try {
-        await updateSyncJob(db, job.id, {
-          status: JOB_STATUS.CONNECTING,
-          step: JOB_STATUS.CONNECTING,
-          message: 'Starting Ralawise sync…',
-          started_at: new Date(),
-        })
-
-        const result = await runRalawiseImport({
-          storeId,
-          vendorId,
-          userId: session.user.id,
-          db,
-          onProgress,
-        })
-
-        await updateSyncJob(db, job.id, {
-          status: JOB_STATUS.COMPLETED,
-          step: JOB_STATUS.COMPLETED,
-          message: result.no_changes
-            ? 'No changes since last import'
-            : 'Ralawise sync complete',
-          current_count:
-            (result.products?.processed ?? 0) + (result.variations?.processed ?? 0),
-          total_count:
-            (result.products?.totalRows ?? 0) + (result.variations?.totalRows ?? 0),
-          products_new: result.products?.new ?? 0,
-          products_updated: result.products?.updated ?? 0,
-          products_skipped: result.products?.skipped ?? 0,
-          products_errors: result.products?.errorCount ?? 0,
-          variations_new: result.variations?.new ?? 0,
-          variations_updated: result.variations?.updated ?? 0,
-          variations_skipped: result.variations?.skipped ?? 0,
-          variations_errors: result.variations?.errorCount ?? 0,
-          result_json: result,
-          completed_at: new Date(),
-          error_message: null,
-        })
-      } catch (error) {
-        console.error('Ralawise sync job failed:', error)
-        await updateSyncJob(db, job.id, {
-          status: JOB_STATUS.FAILED,
-          message: error.message || 'Ralawise sync failed',
-          error_message: error.message || 'Ralawise sync failed',
-          completed_at: new Date(),
-        })
-      }
+      await runSyncJobWorker(db, job, { resume: false })
     })
 
     return NextResponse.json({

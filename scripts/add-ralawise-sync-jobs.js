@@ -87,6 +87,7 @@ async function run() {
         'delta',
         'importing_products',
         'importing_variations',
+        'paused',
         'completed',
         'failed'
       ))

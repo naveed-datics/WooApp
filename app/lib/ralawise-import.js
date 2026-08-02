@@ -2,7 +2,11 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { parseCSV } = require('./csv-parser')
-const { importProductRows, importVariationRows } = require('./csv-import')
+const {
+  importProductRows,
+  importVariationRows,
+  ImportPausedError,
+} = require('./csv-import')
 const {
   fetchRalawiseCatalog,
   downloadCatalog,
@@ -170,6 +174,7 @@ async function loadLastImportRows(vendorId) {
 
 /**
  * Download (or use provided CSV text), delta-filter vs last import, then upsert.
+ * Supports resume via resumeFromStep + resumeOffset (row index within that step).
  */
 async function runRalawiseImport({
   storeId,
@@ -184,10 +189,22 @@ async function runRalawiseImport({
   workDir = null,
   forcePlaywright = false,
   onProgress = null,
+  shouldContinue = null,
+  resumeFromStep = null,
+  resumeOffset = 0,
+  initialProductCounters = null,
+  initialVariationCounters = null,
 }) {
   let productUploadId = null
   let variationUploadId = null
   let catalog = null
+
+  const checkContinue = async () => {
+    if (typeof shouldContinue === 'function') {
+      const ok = await shouldContinue()
+      if (!ok) throw new ImportPausedError('Sync paused')
+    }
+  }
 
   try {
     let productsText = parentCsvText
@@ -221,6 +238,8 @@ async function runRalawiseImport({
         variationsText = catalog.variationsCsvText
       }
     }
+
+    await checkContinue()
 
     await reportProgress(onProgress, {
       step: 'delta',
@@ -260,6 +279,8 @@ async function runRalawiseImport({
       products_skipped: productsSkipped,
       variations_skipped: variationsSkipped,
     })
+
+    await checkContinue()
 
     const noChanges =
       !productDiff.fullImport &&
@@ -302,58 +323,78 @@ async function runRalawiseImport({
       }
     }
 
-    productUploadId = await createCsvUploadRecord({
-      db,
-      storeId,
-      vendorId,
-      userId,
-      fileType: 'products',
-      fileName: 'wordpressdatafullparent.csv',
-      rowCount: productRowsToImport.length,
-    })
+    const skipProducts = resumeFromStep === 'importing_variations'
+    const productStartIndex =
+      resumeFromStep === 'importing_products' ? Math.max(0, resumeOffset || 0) : 0
+    const variationStartIndex =
+      resumeFromStep === 'importing_variations' ? Math.max(0, resumeOffset || 0) : 0
 
-    await reportProgress(onProgress, {
-      step: 'importing_products',
-      message: `Importing products… (0 / ${productRowsToImport.length})`,
-      current: 0,
-      total: productRowsToImport.length,
-      products_skipped: productsSkipped,
-      variations_skipped: variationsSkipped,
-    })
+    let productResult = {
+      processedCount: 0,
+      newCount: initialProductCounters?.new ?? 0,
+      updatedCount: initialProductCounters?.updated ?? 0,
+      errors: [],
+    }
 
-    console.log(
-      `Ralawise import: ${productRowsToImport.length} products to upsert ` +
-        `(${productsSkipped} skipped; upload #${productUploadId})`
-    )
+    if (!skipProducts) {
+      productUploadId = await createCsvUploadRecord({
+        db,
+        storeId,
+        vendorId,
+        userId,
+        fileType: 'products',
+        fileName: 'wordpressdatafullparent.csv',
+        rowCount: productRowsToImport.length,
+      })
 
-    const productResult =
-      productRowsToImport.length > 0
-        ? await importProductRows({
-            rows: productRowsToImport,
-            vendorId,
-            csvUploadId: productUploadId,
-            db,
-            onProgress: async (p) => {
-              await reportProgress(onProgress, {
-                step: 'importing_products',
-                message: `Importing products… (${p.current} / ${p.total})`,
-                current: p.current,
-                total: p.total,
-                newCount: p.newCount,
-                updatedCount: p.updatedCount,
-                products_skipped: productsSkipped,
-                variations_skipped: variationsSkipped,
-              })
-            },
-          })
-        : { processedCount: 0, newCount: 0, updatedCount: 0, errors: [] }
+      await reportProgress(onProgress, {
+        step: 'importing_products',
+        message: `Importing products… (${productStartIndex} / ${productRowsToImport.length})`,
+        current: productStartIndex,
+        total: productRowsToImport.length,
+        products_skipped: productsSkipped,
+        variations_skipped: variationsSkipped,
+        products_new: productResult.newCount,
+        products_updated: productResult.updatedCount,
+      })
 
-    await finalizeCsvUpload(
-      db,
-      productUploadId,
-      productResult.processedCount,
-      productResult.errors
-    )
+      console.log(
+        `Ralawise import: ${productRowsToImport.length} products to upsert ` +
+          `(start ${productStartIndex}; ${productsSkipped} skipped; upload #${productUploadId})`
+      )
+
+      if (productRowsToImport.length > 0) {
+        productResult = await importProductRows({
+          rows: productRowsToImport,
+          vendorId,
+          csvUploadId: productUploadId,
+          db,
+          startIndex: productStartIndex,
+          initialNewCount: productResult.newCount,
+          initialUpdatedCount: productResult.updatedCount,
+          shouldContinue,
+          onProgress: async (p) => {
+            await reportProgress(onProgress, {
+              step: 'importing_products',
+              message: `Importing products… (${p.current} / ${p.total})`,
+              current: p.current,
+              total: p.total,
+              newCount: p.newCount,
+              updatedCount: p.updatedCount,
+              products_skipped: productsSkipped,
+              variations_skipped: variationsSkipped,
+            })
+          },
+        })
+      }
+
+      await finalizeCsvUpload(
+        db,
+        productUploadId,
+        productResult.processedCount + productStartIndex,
+        productResult.errors
+      )
+    }
 
     variationUploadId = await createCsvUploadRecord({
       db,
@@ -367,19 +408,21 @@ async function runRalawiseImport({
 
     await reportProgress(onProgress, {
       step: 'importing_variations',
-      message: `Importing variations… (0 / ${variationRowsToImport.length})`,
-      current: 0,
+      message: `Importing variations… (${variationStartIndex} / ${variationRowsToImport.length})`,
+      current: variationStartIndex,
       total: variationRowsToImport.length,
       products_new: productResult.newCount,
       products_updated: productResult.updatedCount,
       products_errors: productResult.errors.length,
       products_skipped: productsSkipped,
       variations_skipped: variationsSkipped,
+      variations_new: initialVariationCounters?.new ?? 0,
+      variations_updated: initialVariationCounters?.updated ?? 0,
     })
 
     console.log(
       `Ralawise import: ${variationRowsToImport.length} variations to upsert ` +
-        `(${variationsSkipped} skipped; upload #${variationUploadId})`
+        `(start ${variationStartIndex}; ${variationsSkipped} skipped; upload #${variationUploadId})`
     )
 
     const variationResult =
@@ -388,6 +431,10 @@ async function runRalawiseImport({
             rows: variationRowsToImport,
             csvUploadId: variationUploadId,
             db,
+            startIndex: variationStartIndex,
+            initialNewCount: initialVariationCounters?.new ?? 0,
+            initialUpdatedCount: initialVariationCounters?.updated ?? 0,
+            shouldContinue,
             onProgress: async (p) => {
               await reportProgress(onProgress, {
                 step: 'importing_variations',
@@ -404,12 +451,17 @@ async function runRalawiseImport({
               })
             },
           })
-        : { processedCount: 0, newCount: 0, updatedCount: 0, errors: [] }
+        : {
+            processedCount: 0,
+            newCount: initialVariationCounters?.new ?? 0,
+            updatedCount: initialVariationCounters?.updated ?? 0,
+            errors: [],
+          }
 
     await finalizeCsvUpload(
       db,
       variationUploadId,
-      variationResult.processedCount,
+      variationResult.processedCount + variationStartIndex,
       variationResult.errors
     )
 
@@ -431,7 +483,7 @@ async function runRalawiseImport({
       },
       products: {
         totalRows: productRows.length,
-        processed: productResult.processedCount,
+        processed: productResult.processedCount + (skipProducts ? 0 : productStartIndex),
         new: productResult.newCount,
         updated: productResult.updatedCount,
         skipped: productsSkipped,
@@ -440,7 +492,7 @@ async function runRalawiseImport({
       },
       variations: {
         totalRows: variationRows.length,
-        processed: variationResult.processedCount,
+        processed: variationResult.processedCount + variationStartIndex,
         new: variationResult.newCount,
         updated: variationResult.updatedCount,
         skipped: variationsSkipped,
@@ -450,6 +502,9 @@ async function runRalawiseImport({
       downloaded_at: new Date().toISOString(),
     }
   } catch (error) {
+    if (error?.code === 'SYNC_PAUSED' || error?.name === 'ImportPausedError') {
+      throw error
+    }
     await failCsvUpload(db, productUploadId, error.message)
     await failCsvUpload(db, variationUploadId, error.message)
     throw error

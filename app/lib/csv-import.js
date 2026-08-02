@@ -8,11 +8,19 @@ const { createVendorCache, resolveVendorId } = require('./vendor-resolver')
 
 const DEFAULT_BATCH_SIZE = 50
 
+class ImportPausedError extends Error {
+  constructor(message = 'Sync paused') {
+    super(message)
+    this.name = 'ImportPausedError'
+    this.code = 'SYNC_PAUSED'
+  }
+}
+
 /**
  * Upsert product rows by SKU.
  * New products keep DB default status (pending). Updates preserve existing status.
  *
- * @returns {{ processedCount: number, newCount: number, updatedCount: number, errors: string[] }}
+ * @returns {{ processedCount: number, newCount: number, updatedCount: number, errors: string[], paused?: boolean }}
  */
 async function importProductRows({
   rows,
@@ -23,16 +31,28 @@ async function importProductRows({
   batchSize = DEFAULT_BATCH_SIZE,
   vendorCache = null,
   onProgress = null,
+  startIndex = 0,
+  initialNewCount = 0,
+  initialUpdatedCount = 0,
+  shouldContinue = null,
 }) {
   const errors = []
   let processedCount = 0
-  let newCount = 0
-  let updatedCount = 0
+  let newCount = initialNewCount
+  let updatedCount = initialUpdatedCount
   const cache = vendorCache || createVendorCache()
   const defaultVendorId = parseInt(vendorId, 10)
   const total = rows.length
+  const beginAt = Math.max(0, Math.min(startIndex || 0, rows.length))
 
-  for (let batchStart = 0; batchStart < rows.length; batchStart += batchSize) {
+  for (let batchStart = beginAt; batchStart < rows.length; batchStart += batchSize) {
+    if (typeof shouldContinue === 'function') {
+      const ok = await shouldContinue()
+      if (!ok) {
+        throw new ImportPausedError('Sync paused')
+      }
+    }
+
     const batchEnd = Math.min(batchStart + batchSize, rows.length)
 
     for (let i = batchStart; i < batchEnd; i++) {
@@ -120,6 +140,7 @@ async function importProductRows({
         }
         processedCount++
       } catch (rowError) {
+        if (rowError?.code === 'SYNC_PAUSED') throw rowError
         console.error(`Error processing product row ${globalRowIndex + 1}:`, rowError.message)
         errors.push(`Row ${globalRowIndex + 1}: ${rowError.message}`)
       }
@@ -151,14 +172,26 @@ async function importVariationRows({
   rowOffset = 0,
   batchSize = DEFAULT_BATCH_SIZE,
   onProgress = null,
+  startIndex = 0,
+  initialNewCount = 0,
+  initialUpdatedCount = 0,
+  shouldContinue = null,
 }) {
   const errors = []
   let processedCount = 0
-  let newCount = 0
-  let updatedCount = 0
+  let newCount = initialNewCount
+  let updatedCount = initialUpdatedCount
   const total = rows.length
+  const beginAt = Math.max(0, Math.min(startIndex || 0, rows.length))
 
-  for (let batchStart = 0; batchStart < rows.length; batchStart += batchSize) {
+  for (let batchStart = beginAt; batchStart < rows.length; batchStart += batchSize) {
+    if (typeof shouldContinue === 'function') {
+      const ok = await shouldContinue()
+      if (!ok) {
+        throw new ImportPausedError('Sync paused')
+      }
+    }
+
     const batchEnd = Math.min(batchStart + batchSize, rows.length)
 
     for (let i = batchStart; i < batchEnd; i++) {
@@ -256,6 +289,7 @@ async function importVariationRows({
         }
         processedCount++
       } catch (rowError) {
+        if (rowError?.code === 'SYNC_PAUSED') throw rowError
         console.error(`Error processing variation row ${globalRowIndex + 1}:`, rowError.message)
         errors.push(`Row ${globalRowIndex + 1}: ${rowError.message}`)
       }
@@ -279,4 +313,5 @@ module.exports = {
   importProductRows,
   importVariationRows,
   DEFAULT_BATCH_SIZE,
+  ImportPausedError,
 }

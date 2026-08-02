@@ -9,8 +9,37 @@ const JOB_STATUS = {
   DELTA: 'delta',
   IMPORTING_PRODUCTS: 'importing_products',
   IMPORTING_VARIATIONS: 'importing_variations',
+  PAUSED: 'paused',
   COMPLETED: 'completed',
   FAILED: 'failed',
+}
+
+const ALLOWED_STATUSES = [
+  'queued',
+  'connecting',
+  'downloading',
+  'delta',
+  'importing_products',
+  'importing_variations',
+  'paused',
+  'completed',
+  'failed',
+]
+
+class SyncPausedError extends Error {
+  constructor(message = 'Sync paused') {
+    super(message)
+    this.name = 'SyncPausedError'
+    this.code = 'SYNC_PAUSED'
+  }
+}
+
+function isSyncPausedError(error) {
+  return (
+    error?.code === 'SYNC_PAUSED' ||
+    error?.name === 'SyncPausedError' ||
+    /sync paused/i.test(error?.message || '')
+  )
 }
 
 const CREATE_TABLE_SQL = `
@@ -69,23 +98,6 @@ const ALTER_COLUMNS = [
   ['updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'],
 ]
 
-const STATUS_CHECK_SQL = `
-  ALTER TABLE ralawise_sync_jobs
-  DROP CONSTRAINT IF EXISTS ralawise_sync_jobs_status_check;
-  ALTER TABLE ralawise_sync_jobs
-  ADD CONSTRAINT ralawise_sync_jobs_status_check
-  CHECK (status IN (
-    'queued',
-    'connecting',
-    'downloading',
-    'delta',
-    'importing_products',
-    'importing_variations',
-    'completed',
-    'failed'
-  ))
-`
-
 let tableReady = false
 
 async function ensureJobsTable(db) {
@@ -110,6 +122,7 @@ async function ensureJobsTable(db) {
       'delta',
       'importing_products',
       'importing_variations',
+      'paused',
       'completed',
       'failed'
     ))
@@ -239,10 +252,26 @@ function serializeJob(row) {
 }
 
 /**
+ * Throw if the job was paused by the user (stop button).
+ */
+async function assertJobNotPaused(db, jobId) {
+  const job = await getSyncJob(db, jobId)
+  if (job?.status === JOB_STATUS.PAUSED) {
+    throw new SyncPausedError(
+      job.message || 'Sync paused — click Resume to continue'
+    )
+  }
+  return job
+}
+
+/**
  * Build an onProgress callback that writes job progress to the DB.
+ * Throws SyncPausedError if the job was stopped.
  */
 function makeJobProgressUpdater(db, jobId) {
   return async function onProgress(progress = {}) {
+    await assertJobNotPaused(db, jobId)
+
     const fields = {}
 
     if (progress.step != null) {
@@ -279,7 +308,6 @@ function makeJobProgressUpdater(db, jobId) {
       fields.variations_errors = progress.variations_errors
     }
 
-    // Convenience: nested counters from import progress
     if (progress.newCount != null && progress.step === JOB_STATUS.IMPORTING_PRODUCTS) {
       fields.products_new = progress.newCount
     }
@@ -304,15 +332,20 @@ function makeJobProgressUpdater(db, jobId) {
 
     if (Object.keys(fields).length === 0) return
     await updateSyncJob(db, jobId, fields)
+    await assertJobNotPaused(db, jobId)
   }
 }
 
 module.exports = {
   JOB_STATUS,
+  ALLOWED_STATUSES,
+  SyncPausedError,
+  isSyncPausedError,
   ensureJobsTable,
   createSyncJob,
   updateSyncJob,
   getSyncJob,
   serializeJob,
+  assertJobNotPaused,
   makeJobProgressUpdater,
 }

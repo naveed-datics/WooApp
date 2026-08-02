@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/app/components/ui/button'
-import { Check, Circle, Loader2, RefreshCw, X } from 'lucide-react'
+import { Check, Circle, Loader2, Pause, Play, RefreshCw, X } from 'lucide-react'
 
 const POLL_MS = 1500
 const STORAGE_KEY = (storeId) => `ralawise-sync-job:${storeId}`
@@ -26,6 +26,15 @@ const STEP_ORDER = [
   'failed',
 ]
 
+const ACTIVE_STATUSES = new Set([
+  'queued',
+  'connecting',
+  'downloading',
+  'delta',
+  'importing_products',
+  'importing_variations',
+])
+
 function stepIndex(status) {
   const idx = STEP_ORDER.indexOf(status)
   return idx === -1 ? 0 : idx
@@ -35,12 +44,19 @@ function isTerminal(status) {
   return status === 'completed' || status === 'failed'
 }
 
+function isRunning(status) {
+  return ACTIVE_STATUSES.has(status)
+}
+
 function StepIcon({ state }) {
   if (state === 'done') {
     return <Check className="h-4 w-4 text-green-600" />
   }
   if (state === 'active') {
     return <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+  }
+  if (state === 'paused') {
+    return <Pause className="h-4 w-4 text-amber-600" />
   }
   if (state === 'failed') {
     return <X className="h-4 w-4 text-red-600" />
@@ -61,6 +77,7 @@ export default function RalawiseSyncButton({
 
   const [vendorId, setVendorId] = useState(String(initialVendor || ''))
   const [loading, setLoading] = useState(false)
+  const [actionBusy, setActionBusy] = useState(false)
   const [error, setError] = useState('')
   const [job, setJob] = useState(null)
   const pollRef = useRef(null)
@@ -86,6 +103,11 @@ export default function RalawiseSyncButton({
         if (data.status === 'failed') {
           setError(data.error || data.message || 'Ralawise sync failed')
         }
+      } else if (data.status === 'paused') {
+        stopPolling()
+        setLoading(false)
+      } else if (isRunning(data.status)) {
+        setLoading(true)
       }
     },
     [stopPolling, storeId]
@@ -123,7 +145,6 @@ export default function RalawiseSyncButton({
     [pollStatus, stopPolling]
   )
 
-  // Resume polling after refresh if a job is still running
   useEffect(() => {
     let cancelled = false
     try {
@@ -135,7 +156,7 @@ export default function RalawiseSyncButton({
       ;(async () => {
         const data = await pollStatus(jobId)
         if (cancelled || !data) return
-        if (!isTerminal(data.status)) {
+        if (isRunning(data.status)) {
           startPolling(jobId)
         }
       })()
@@ -158,7 +179,7 @@ export default function RalawiseSyncButton({
 
     if (
       !confirm(
-        'Download the latest Ralawise catalog and import new + updated products/variations into WooApp? Progress will show below; you can keep this tab open to watch it.'
+        'Download the latest Ralawise catalog and import new + updated products/variations into WooApp? Progress will show below; you can Stop and Resume anytime.'
       )
     ) {
       return
@@ -208,11 +229,69 @@ export default function RalawiseSyncButton({
     }
   }
 
+  const handleStop = async () => {
+    if (!job?.jobId) return
+    setActionBusy(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/ralawise/sync/${job.jobId}/stop`, {
+        method: 'POST',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to stop sync')
+      }
+      applyJob(data)
+    } catch (err) {
+      setError(err.message || 'Failed to stop sync')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const handleResume = async () => {
+    if (!job?.jobId) return
+    setActionBusy(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/ralawise/sync/${job.jobId}/resume`, {
+        method: 'POST',
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to resume sync')
+      }
+      try {
+        sessionStorage.setItem(STORAGE_KEY(storeId), String(job.jobId))
+      } catch {
+        // ignore
+      }
+      applyJob({ ...job, ...data, status: data.status || job.step || 'connecting' })
+      startPolling(job.jobId)
+    } catch (err) {
+      setError(err.message || 'Failed to resume sync')
+      setLoading(false)
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   const status = job?.status || null
-  const activeKey = status === 'failed' ? job?.step || 'connecting' : status
+  const activeKey =
+    status === 'failed' || status === 'paused'
+      ? job?.step || 'connecting'
+      : status
   const currentStepIdx = activeKey ? stepIndex(activeKey) : -1
-  const showProgress = Boolean(job) && (loading || status === 'completed' || status === 'failed' || !isTerminal(status))
+  const showProgress =
+    Boolean(job) &&
+    (loading ||
+      status === 'completed' ||
+      status === 'failed' ||
+      status === 'paused' ||
+      isRunning(status))
   const result = status === 'completed' ? job?.result || job : null
+  const canStop = isRunning(status) && !actionBusy
+  const canResume = status === 'paused' && !actionBusy
 
   return (
     <div className={compact ? 'space-y-2' : 'space-y-3'}>
@@ -222,7 +301,7 @@ export default function RalawiseSyncButton({
           <select
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
             value={vendorId}
-            disabled={loading}
+            disabled={loading || status === 'paused'}
             onChange={(e) => setVendorId(e.target.value)}
           >
             <option value="">Select vendor</option>
@@ -235,19 +314,53 @@ export default function RalawiseSyncButton({
         </label>
       )}
 
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full"
-        disabled={loading || !vendorId}
-        onClick={handleSync}
-      >
-        <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-        {loading ? 'Syncing from Ralawise…' : 'Sync from Ralawise'}
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          disabled={loading || status === 'paused' || !vendorId}
+          onClick={handleSync}
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          {loading ? 'Syncing from Ralawise…' : 'Sync from Ralawise'}
+        </Button>
+
+        {canStop && (
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0 border-amber-300 text-amber-800 hover:bg-amber-50"
+            disabled={actionBusy}
+            onClick={handleStop}
+          >
+            <Pause className="h-4 w-4 mr-1" />
+            Stop
+          </Button>
+        )}
+
+        {canResume && (
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0 border-green-300 text-green-800 hover:bg-green-50"
+            disabled={actionBusy}
+            onClick={handleResume}
+          >
+            <Play className="h-4 w-4 mr-1" />
+            Resume
+          </Button>
+        )}
+      </div>
 
       {showProgress && job && (
         <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-3 space-y-2">
+          {status === 'paused' && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              Paused at {(job.current || 0).toLocaleString()} /{' '}
+              {(job.total || 0).toLocaleString()}. Click Resume to continue.
+            </p>
+          )}
           <ol className="space-y-2">
             {STEPS.map((step, idx) => {
               const orderIdx = STEP_ORDER.indexOf(step.key)
@@ -256,6 +369,8 @@ export default function RalawiseSyncButton({
                 state = 'done'
               } else if (status === 'failed' && currentStepIdx === orderIdx) {
                 state = 'failed'
+              } else if (status === 'paused' && currentStepIdx === orderIdx) {
+                state = 'paused'
               } else if (
                 currentStepIdx === orderIdx ||
                 (status === 'queued' && idx === 0)
@@ -266,7 +381,9 @@ export default function RalawiseSyncButton({
               const isImportStep =
                 step.key === 'importing_products' || step.key === 'importing_variations'
               const showCounts =
-                state === 'active' && isImportStep && job.total > 0
+                (state === 'active' || state === 'paused') &&
+                isImportStep &&
+                job.total > 0
 
               return (
                 <li key={step.key} className="flex items-start gap-2 text-sm">
@@ -278,15 +395,18 @@ export default function RalawiseSyncButton({
                       className={
                         state === 'active'
                           ? 'font-medium text-gray-900'
-                          : state === 'done'
-                            ? 'text-gray-700'
-                            : state === 'failed'
-                              ? 'font-medium text-red-700'
-                              : 'text-gray-400'
+                          : state === 'paused'
+                            ? 'font-medium text-amber-800'
+                            : state === 'done'
+                              ? 'text-gray-700'
+                              : state === 'failed'
+                                ? 'font-medium text-red-700'
+                                : 'text-gray-400'
                       }
                     >
                       {step.label}
                       {state === 'active' ? '…' : ''}
+                      {state === 'paused' ? ' (paused)' : ''}
                       {showCounts ? (
                         <span className="ml-1 font-normal text-gray-600">
                           {job.current.toLocaleString()} / {job.total.toLocaleString()}
@@ -308,7 +428,9 @@ export default function RalawiseSyncButton({
                       <div className="mt-1.5">
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div
-                            className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                            className={`h-2 rounded-full transition-all duration-300 ${
+                              state === 'paused' ? 'bg-amber-500' : 'bg-green-600'
+                            }`}
                             style={{
                               width: `${job.progressPercent || 0}%`,
                             }}
