@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { Store, Users, Package, LayoutDashboard, LogOut, ShoppingBag, Upload, RefreshCw, Layers, Settings } from 'lucide-react'
+import { Store, Users, Package, LayoutDashboard, LogOut, ShoppingBag, Upload, RefreshCw, Layers, Settings, ClipboardList } from 'lucide-react'
 import { cn } from '@/app/lib/utils'
 
 export default function Sidebar({ user, storeId = null }) {
@@ -87,6 +87,11 @@ export default function Sidebar({ user, storeId = null }) {
       icon: ShoppingBag,
     },
     {
+      name: 'Orders',
+      href: `/admin/store/${storeId}/orders`,
+      icon: ClipboardList,
+    },
+    {
       name: 'Sync',
       href: `/admin/store/${storeId}/sync`,
       icon: RefreshCw,
@@ -113,6 +118,11 @@ export default function Sidebar({ user, storeId = null }) {
       name: 'Review Products',
       href: `/admin/store/${effectiveStoreId}/products`,
       icon: ShoppingBag,
+    },
+    {
+      name: 'Orders',
+      href: `/admin/store/${effectiveStoreId}/orders`,
+      icon: ClipboardList,
     },
   ] : []
 
