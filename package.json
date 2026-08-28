@@ -16,6 +16,7 @@
     "migrate:ralawise-jobs": "node scripts/add-ralawise-sync-jobs.js",
     "migrate:price-rule": "node scripts/add-price-rule.js",
     "migrate:app-settings": "node scripts/add-app-settings.js",
+    "migrate:specifications": "node scripts/add-product-specifications.js",
     "ralawise:download-smoke": "node scripts/ralawise-download-smoke.js",
     "ralawise:import-smoke": "node scripts/ralawise-import-smoke.js",
     "ralawise:resolve-urls-smoke": "node scripts/ralawise-resolve-urls-smoke.js"

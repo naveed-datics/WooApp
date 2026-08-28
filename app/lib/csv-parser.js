@@ -32,7 +32,6 @@ function normalizeColumnName(key) {
     'title': 'name',
     'product_title': 'name',
     'productname': 'name',
-    'product_title': 'name',
     'sku': 'sku',
     'product_sku': 'sku',
     'productsku': 'sku',
@@ -110,6 +109,38 @@ function parseProductRow(row) {
   const brandValue =
     row.attributepa_brand || row.attributebrand || row.pa_brand || row.brand || null
 
+  // Specification attributes (Fabric, Weight, Size Description, Length/Fit)
+  const fabricValue =
+    row.attributefabric_description ||
+    row.attributefabricdescription ||
+    row.fabric_description ||
+    row.fabric ||
+    null
+
+  const weightValue =
+    row.attributepa_weight ||
+    row.attributeweight ||
+    row.pa_weight ||
+    row.weight ||
+    row.fabric_weight ||
+    null
+
+  const sizeDescValue =
+    row.attributesize_description ||
+    row.attributesizedescription ||
+    row.size_description ||
+    row.size_info ||
+    null
+
+  const lengthFitValue =
+    row.attributelengthfit ||
+    row.attributelength_fit ||
+    row.lengthfit ||
+    row.length_fit ||
+    row.fit ||
+    row.attributefit ||
+    null
+
   return {
     sku: skuValue ? String(skuValue).trim() : null,
     name: String(nameValue).trim() || '',
@@ -126,11 +157,15 @@ function parseProductRow(row) {
     images: row.images ? String(row.images).trim() : null,
     attributes: attributesString ? String(attributesString).trim() : null,
     brand: brandValue ? String(brandValue).trim() : null,
+    fabric: fabricValue ? String(fabricValue).trim() : null,
+    weight: weightValue ? String(weightValue).trim() : null,
+    size_description: sizeDescValue ? String(sizeDescValue).trim() : null,
+    length_fit: lengthFitValue ? String(lengthFitValue).trim() : null,
   }
 }
 
 function parseVariationRow(row) {
-  // meta:attribute_Colour / meta:attribute_Size → metaattribute_colour / metaattribute_size after transformHeader
+  // meta:attribute_Colour / meta:attribute_Size -> metaattribute_colour / metaattribute_size after transformHeader
   // (transformHeader: lowercase, replace spaces with _, remove non-alphanumeric except _)
   // Also check for direct size and color columns
   const sizeValue = row.metaattribute_size?.trim() || row.metaattributesize?.trim() || row.size?.trim() || row.attributesize?.trim() || null
@@ -170,7 +205,3 @@ module.exports = {
   parseProductRow,
   parseVariationRow,
 }
-
-
-
-
