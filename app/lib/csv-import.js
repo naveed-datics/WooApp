@@ -85,8 +85,9 @@ async function importProductRows({
               csv_upload_id = $1, vendor_id = $2, name = $3, description = $4, short_description = $5,
               price = $6, regular_price = $7, sale_price = $8, stock_quantity = $9,
               manage_stock = $10, stock_status = $11, categories = $12, tags = $13,
-              images = $14, attributes = $15, brand = $16, updated_at = NOW()
-             WHERE id = $17`,
+              images = $14, attributes = $15, brand = $16, fabric = $17, weight = $18,
+              size_description = $19, length_fit = $20, updated_at = NOW()
+             WHERE id = $21`,
             [
               csvUploadId,
               resolvedVendorId,
@@ -104,6 +105,10 @@ async function importProductRows({
               productData.images,
               productData.attributes,
               productData.brand,
+              productData.fabric,
+              productData.weight,
+              productData.size_description,
+              productData.length_fit,
               productId,
             ]
           )
@@ -113,8 +118,9 @@ async function importProductRows({
             `INSERT INTO products (
               csv_upload_id, vendor_id, sku, name, description, short_description,
               price, regular_price, sale_price, stock_quantity, manage_stock,
-              stock_status, categories, tags, images, attributes, brand
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+              stock_status, categories, tags, images, attributes, brand,
+              fabric, weight, size_description, length_fit
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             RETURNING id`,
             [
               csvUploadId,
@@ -134,6 +140,10 @@ async function importProductRows({
               productData.images,
               productData.attributes,
               productData.brand,
+              productData.fabric,
+              productData.weight,
+              productData.size_description,
+              productData.length_fit,
             ]
           )
           newCount++
