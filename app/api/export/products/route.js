@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { authenticateExportRequest } from '../../../lib/export-auth'
 import db from '../../../lib/db'
 import { resolveCostPrice, resolveStorePrice } from '../../../lib/pricing'
@@ -72,15 +72,6 @@ function serializeProduct(row, variations, store) {
  *
  * GET /api/export/products?store_id=1&limit=200&offset=0&updated_since=2026-07-01T00:00:00Z
  * Header: x-api-key: <store's export_api_key>
- *
- * Only globally 'approved' products are returned - anything still 'pending'
- * review in WooApp is intentionally withheld. Approval is global (not
- * per-store): every authenticated store receives the same catalog.
- * `product_stores` is consulted only to attach this store's own
- * `woo_product_id`, which is per-store sync bookkeeping, not a gate.
- *
- * Prices: store markup rule is applied to Ralawise/CSV cost; regular_price
- * in the payload is the sell (store) price. cost_price is the original.
  */
 export async function GET(request) {
   try {
@@ -98,7 +89,7 @@ export async function GET(request) {
     const offset = parseInt(searchParams.get('offset') || '0', 10) || 0
     const updatedSince = searchParams.get('updated_since')
 
-    const conditions = [`p.status = 'approved'`]
+    const conditions = [`p.status = 'approved'`, `(ps.status IS NULL OR ps.status != 'removed')`]
     const params = []
 
     if (updatedSince) {
@@ -111,6 +102,7 @@ export async function GET(request) {
     const totalResult = await db.query(
       `SELECT COUNT(*) AS total
        FROM products p
+       LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $${params.length + 1}
        INNER JOIN vendor_stores vs ON vs.vendor_id = p.vendor_id AND vs.store_id = $${params.length + 1}
        WHERE ${whereClause}`,
       [...params, auth.store.id]

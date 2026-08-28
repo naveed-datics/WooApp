@@ -1,14 +1,10 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { authenticateExportRequest } from '../../../lib/export-auth'
 import db from '../../../lib/db'
 
 /**
  * Lightweight connectivity/diagnostics check for the WordPress "WooApp
- * Connector" plugin's "Test Connection" button. Verifies the store_id +
- * x-api-key pair is valid and reports how many products are currently
- * available to import, without transferring the full product payload.
- *
- * Counts are scoped to vendors assigned to the authenticated store.
+ * Connector" plugin's "Test Connection" button.
  */
 export async function GET(request) {
   try {
@@ -20,9 +16,10 @@ export async function GET(request) {
 
     const counts = await db.query(
       `SELECT
-        COUNT(*) FILTER (WHERE p.status = 'approved') AS exportable_products,
+        COUNT(*) FILTER (WHERE p.status = 'approved' AND (ps.status IS NULL OR ps.status != 'removed')) AS exportable_products,
         COUNT(*) AS total_products
        FROM products p
+       LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $1
        INNER JOIN vendor_stores vs ON vs.vendor_id = p.vendor_id AND vs.store_id = $1`,
       [auth.store.id]
     )

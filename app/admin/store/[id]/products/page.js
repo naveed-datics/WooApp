@@ -1,4 +1,4 @@
-import { requireAdmin } from '../../../../lib/auth'
+﻿import { requireAdmin } from '../../../../lib/auth'
 import db from '../../../../lib/db'
 import { redirect } from 'next/navigation'
 import ProductReview from '../../../../components/product-review'
@@ -85,6 +85,7 @@ export default async function ProductsPage({ params, searchParams }) {
   const productsResult = await db.query(
     `SELECT p.id, p.sku, p.name, p.price, p.regular_price, p.sale_price, p.stock_quantity,
             p.status, p.created_at, p.reviewed_at, p.brand, ps.woo_product_id,
+            ps.status AS store_status, ps.removed_at,
             COALESCE(v.variant_count, 0) as variant_count,
             v.min_cost_price,
             ven.name AS vendor_name

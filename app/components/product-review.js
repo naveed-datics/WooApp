@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -33,6 +33,7 @@ export default function ProductReview({
   const [variantsData, setVariantsData] = useState({})
   const [selectedIds, setSelectedIds] = useState(new Set())
   const selectAllRef = useRef(null)
+  const [removingProduct, setRemovingProduct] = useState(null)
 
   const getProductCost = (product) => {
     if (product.min_cost_price !== null && product.min_cost_price !== undefined) {
@@ -135,6 +136,33 @@ export default function ProductReview({
         {productStatus}
       </span>
     )
+  }
+
+  const handleStoreStatusChange = async (productId, action) => {
+    setLoading(productId)
+    setError('')
+    setSuccess('')
+
+    try {
+      const response = await fetch(/api/products/ + productId + /store-status, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store_id: storeId, action }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update store status')
+      }
+
+      setSuccess(action === 'remove' ? 'Product removed from store export.' : 'Product restored to store export.')
+      setRemovingProduct(null)
+      router.refresh()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(null)
+    }
   }
 
   const handleStatusChange = async (productId, newStatus) => {
@@ -920,9 +948,43 @@ export default function ProductReview({
           </div>
         )}
       </div>
+
+      {removingProduct && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">
+              Remove {removingProduct.sku || removingProduct.name} from Store?
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              This product will no longer be exported to this store and will be moved to Trash in the live WooCommerce catalog on the next sync.
+              <br /><br />
+              <span className="font-semibold text-gray-800">The master WooApp catalog product will not be deleted.</span>
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setRemovingProduct(null)}
+                disabled={loading === removingProduct.id}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStoreStatusChange(removingProduct.id, 'remove')}
+                disabled={loading === removingProduct.id}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50"
+              >
+                {loading === removingProduct.id ? 'Removing...' : 'Remove from Store'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
 
 
 
