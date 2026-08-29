@@ -94,7 +94,8 @@ export async function GET(request) {
 
     if (updatedSince) {
       params.push(updatedSince)
-      conditions.push(`(p.updated_at >= ${params.length} OR ps.updated_at >= ${params.length})`)
+      const pIdx = params.length
+      conditions.push(`(p.updated_at >= ${pIdx} OR ps.updated_at >= ${pIdx})`)
     }
 
     const whereClause = conditions.join(' AND ')
