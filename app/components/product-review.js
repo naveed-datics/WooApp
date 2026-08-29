@@ -760,18 +760,47 @@ export default function ProductReview({
                               </button>
                             </>
                           )}
-                          {product.status === 'approved' && canSync && (
-                            isPluginStore ? (
-                              <span className="text-gray-500 text-xs italic">Pulled by plugin</span>
-                            ) : (
+                          {product.store_status === 'removed' ? (
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                Removed from Store
+                              </span>
                               <button
-                                onClick={() => handleSyncProduct(product.id)}
+                                onClick={() => handleStoreStatusChange(product.id, 'restore')}
                                 disabled={loading === product.id}
-                                className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
+                                className="text-green-600 hover:text-green-900 font-medium text-xs disabled:opacity-50"
                               >
-                                {loading === product.id ? 'Syncing...' : 'Sync with Store'}
+                                {loading === product.id ? 'Restoring...' : 'Restore to Store'}
                               </button>
-                            )
+                            </div>
+                          ) : (
+                            <>
+                              {product.status === 'approved' && (
+                                isPluginStore ? (
+                                  <span className="text-gray-500 text-xs italic">Pulled by plugin</span>
+                                ) : (
+                                  canSync && (
+                                    <button
+                                      onClick={() => handleSyncProduct(product.id)}
+                                      disabled={loading === product.id}
+                                      className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
+                                    >
+                                      {loading === product.id ? 'Syncing...' : 'Sync with Store'}
+                                    </button>
+                                  )
+                                )
+                              )}
+                              {product.status === 'approved' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setRemovingProduct(product)}
+                                  disabled={loading === product.id}
+                                  className="text-red-600 hover:text-red-900 font-medium text-xs ml-2 disabled:opacity-50"
+                                >
+                                  Remove from Store
+                                </button>
+                              )}
+                            </>
                           )}
                           {product.status === 'synced' && (
                             <span className="text-gray-500 text-xs">
