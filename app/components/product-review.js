@@ -18,6 +18,8 @@ export default function ProductReview({
   search = '',
   brand = '',
   brands = [],
+  category = '',
+  categories = [],
   canApprove = true,
   canSync = true,
 }) {
@@ -42,19 +44,35 @@ export default function ProductReview({
     return resolveCostPrice(product)
   }
 
+  const getProductThumbnail = (product) => {
+    if (product.images) {
+      const list = String(product.images)
+        .split(',')
+        .map((img) => img.trim())
+        .filter(Boolean)
+      if (list.length > 0) return list[0]
+    }
+    if (product.first_variant_image) {
+      return product.first_variant_image
+    }
+    return null
+  }
+
   useEffect(() => {
     setSelectedIds(new Set())
   }, [storeId])
 
-  const buildQuery = ({ page: newPage, newLimit, newSearch, newBrand }) => {
+  const buildQuery = ({ page: newPage, newLimit, newSearch, newBrand, newCategory }) => {
     const params = new URLSearchParams()
     params.set('status', status)
     params.set('page', String(newPage))
     params.set('limit', String(newLimit ?? limit))
     const effectiveSearch = newSearch !== undefined ? newSearch : search
     const effectiveBrand = newBrand !== undefined ? newBrand : brand
+    const effectiveCategory = newCategory !== undefined ? newCategory : category
     if (effectiveSearch) params.set('search', effectiveSearch)
     if (effectiveBrand) params.set('brand', effectiveBrand)
+    if (effectiveCategory) params.set('category', effectiveCategory)
     return params.toString()
   }
 
@@ -80,6 +98,10 @@ export default function ProductReview({
 
   const handleBrandChange = (newBrand) => {
     router.push(`/admin/store/${storeId}/products?${buildQuery({ page: 1, newBrand })}`)
+  }
+
+  const handleCategoryChange = (newCategory) => {
+    router.push(`/admin/store/${storeId}/products?${buildQuery({ page: 1, newCategory })}`)
   }
 
   const handlePageInputSubmit = (e) => {
@@ -440,6 +462,7 @@ export default function ProductReview({
     params.set('limit', String(limit))
     if (search) params.set('search', search)
     if (brand) params.set('brand', brand)
+    if (category) params.set('category', category)
     return `/admin/store/${storeId}/products?${params.toString()}`
   }
 
@@ -530,10 +553,10 @@ export default function ProductReview({
         </div>
       )}
 
-      {/* Search Input - Above Table */}
-      <div className="mb-4 flex justify-between items-center gap-4">
-        <div className="flex items-center gap-3 flex-1">
-          <form onSubmit={handleSearchSubmit} className="flex-1 max-w-md">
+      {/* Filter Row: Search | All Brands | All Categories */}
+      <div className="mb-4 flex flex-wrap justify-between items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+          <form onSubmit={handleSearchSubmit} className="flex-1 max-w-md min-w-[200px]">
             <div className="relative">
               <input
                 type="text"
@@ -565,12 +588,27 @@ export default function ProductReview({
             <select
               value={brand}
               onChange={(e) => handleBrandChange(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="px-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
             >
               <option value="">All Brands</option>
               {brands.map((b) => (
                 <option key={b} value={b}>
                   {b}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {categories.length > 0 && (
+            <select
+              value={category}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+            >
+              <option value="">All Categories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
                 </option>
               ))}
             </select>
@@ -603,19 +641,35 @@ export default function ProductReview({
         )}
       </div>
 
-      {(search || brand) && (
-        <div className="mb-4 text-sm text-gray-600">
+      {(search || brand || category) && (
+        <div className="mb-4 text-sm text-gray-600 flex flex-wrap items-center gap-2">
           {search && (
             <span>
-              Showing results for: <span className="font-medium">"{search}"</span>
+              Search: <span className="font-medium">"{search}"</span>
             </span>
           )}
-          {search && brand && <span className="mx-2">&middot;</span>}
+          {search && (brand || category) && <span>&middot;</span>}
           {brand && (
             <span>
               Brand: <span className="font-medium">{brand}</span>
             </span>
           )}
+          {brand && category && <span>&middot;</span>}
+          {category && (
+            <span>
+              Category: <span className="font-medium">{category}</span>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchInput('')
+              router.push(`/admin/store/${storeId}/products?status=${status}&limit=${limit}`)
+            }}
+            className="text-xs text-indigo-600 hover:text-indigo-800 ml-2 underline"
+          >
+            Clear filters
+          </button>
         </div>
       )}
 
@@ -635,6 +689,9 @@ export default function ProductReview({
                   />
                 </th>
               )}
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                Image
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 SKU
               </th>
@@ -667,7 +724,7 @@ export default function ProductReview({
           <tbody className="bg-white divide-y divide-gray-200">
             {products.length === 0 ? (
               <tr>
-                <td colSpan={showCheckboxColumn ? 10 : 9} className="px-6 py-4 text-center text-gray-500">
+                <td colSpan={showCheckboxColumn ? 11 : 10} className="px-6 py-4 text-center text-gray-500">
                   No products found.
                 </td>
               </tr>
@@ -676,6 +733,7 @@ export default function ProductReview({
                 const isExpanded = expandedProducts.has(product.id)
                 const variants = variantsData[product.id] || []
                 const variantCount = parseInt(product.variant_count) || 0
+                const thumbnailUrl = getProductThumbnail(product)
                 
                 return (
                   <React.Fragment key={product.id}>
@@ -691,6 +749,36 @@ export default function ProductReview({
                           />
                         </td>
                       )}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <Link
+                          href={`/admin/store/${storeId}/products/${product.id}`}
+                          className="block w-12 h-12 rounded-md overflow-hidden bg-gray-100 border border-gray-200 shrink-0 hover:opacity-80 transition-opacity"
+                        >
+                          {thumbnailUrl ? (
+                            <img
+                              src={thumbnailUrl}
+                              alt={product.name || product.sku}
+                              loading="lazy"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.onerror = null
+                                e.currentTarget.style.display = 'none'
+                                if (e.currentTarget.nextElementSibling) {
+                                  e.currentTarget.nextElementSibling.style.display = 'flex'
+                                }
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            className={`w-full h-full flex items-center justify-center text-gray-400 ${thumbnailUrl ? 'hidden' : 'flex'}`}
+                            aria-label="No image available"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                          </div>
+                        </Link>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {product.sku || '-'}
                       </td>
@@ -768,73 +856,80 @@ export default function ProductReview({
                               <button
                                 onClick={() => handleStoreStatusChange(product.id, 'restore')}
                                 disabled={loading === product.id}
-                                className="text-green-600 hover:text-green-900 font-medium text-xs disabled:opacity-50"
+                                className="text-indigo-600 hover:text-indigo-900 text-xs font-medium underline disabled:opacity-50"
                               >
                                 {loading === product.id ? 'Restoring...' : 'Restore to Store'}
                               </button>
                             </div>
                           ) : (
-                            <>
-                              {product.status === 'approved' && (
-                                isPluginStore ? (
-                                  <span className="text-gray-500 text-xs italic">Pulled by plugin</span>
-                                ) : (
-                                  canSync && (
-                                    <button
-                                      onClick={() => handleSyncProduct(product.id)}
-                                      disabled={loading === product.id}
-                                      className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
-                                    >
-                                      {loading === product.id ? 'Syncing...' : 'Sync with Store'}
-                                    </button>
-                                  )
-                                )
-                              )}
-                              {product.status === 'approved' && (
-                                <button
-                                  type="button"
-                                  onClick={() => setRemovingProduct(product)}
-                                  disabled={loading === product.id}
-                                  className="text-red-600 hover:text-red-900 font-medium text-xs ml-2 disabled:opacity-50"
-                                >
-                                  Remove from Store
-                                </button>
-                              )}
-                            </>
+                            <button
+                              onClick={() => setRemovingProduct(product)}
+                              disabled={loading === product.id}
+                              className="text-red-600 hover:text-red-900 text-xs font-medium disabled:opacity-50"
+                            >
+                              Remove from Store
+                            </button>
                           )}
-                          {product.status === 'synced' && (
-                            <span className="text-gray-500 text-xs">
-                              Synced {product.woo_product_id ? `(ID: ${product.woo_product_id})` : ''}
-                            </span>
+                          {isPluginStore && (
+                            <span className="text-xs text-gray-400">Pulled by plugin</span>
+                          )}
+                          {!isPluginStore && product.status === 'approved' && canSync && (
+                            <button
+                              onClick={() => handleSyncProduct(product.id)}
+                              disabled={loading === product.id}
+                              className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50"
+                            >
+                              {loading === product.id ? 'Syncing...' : 'Sync to Store'}
+                            </button>
                           )}
                         </div>
                       </td>
                     </tr>
-                    {isExpanded && variantCount > 0 && (
-                      <tr key={`${product.id}-variants`}>
-                        <td colSpan={showCheckboxColumn ? 9 : 8} className="px-6 py-4 bg-gray-50">
-                          <div className="ml-8">
-                            <h4 className="text-sm font-semibold text-gray-700 mb-3">Variants ({variants.length})</h4>
+                    {isExpanded && (
+                      <tr className="bg-gray-50">
+                        <td colSpan={showCheckboxColumn ? 11 : 10} className="px-6 py-4">
+                          <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                            <h4 className="text-sm font-medium text-gray-900 mb-3">
+                              Variants ({variantCount})
+                            </h4>
                             {variants.length === 0 ? (
-                              <p className="text-sm text-gray-500">Loading variants...</p>
+                              <div className="text-sm text-gray-500 py-2">
+                                Loading variants...
+                              </div>
                             ) : (
                               <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg">
-                                  <thead className="bg-gray-100">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                  <thead className="bg-gray-50">
                                     <tr>
-                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">SKU</th>
-                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Size</th>
-                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Color</th>
-                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Cost</th>
-                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Store price</th>
-                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Stock</th>
-                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">Status</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        SKU
+                                      </th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Size
+                                      </th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Color
+                                      </th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Cost
+                                      </th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Store price
+                                      </th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Stock
+                                      </th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                        Status
+                                      </th>
                                     </tr>
                                   </thead>
                                   <tbody className="bg-white divide-y divide-gray-200">
                                     {variants.map((variant) => (
                                       <tr key={variant.id}>
-                                        <td className="px-4 py-2 text-sm text-gray-900">{variant.sku || '-'}</td>
+                                        <td className="px-4 py-2 text-sm font-medium text-gray-900">
+                                          {variant.sku}
+                                        </td>
                                         <td className="px-4 py-2 text-sm text-gray-500">{variant.size || '-'}</td>
                                         <td className="px-4 py-2 text-sm text-gray-500">{variant.color || '-'}</td>
                                         <td className="px-4 py-2 text-sm text-gray-500">
@@ -1013,8 +1108,3 @@ export default function ProductReview({
     </div>
   )
 }
-
-
-
-
-

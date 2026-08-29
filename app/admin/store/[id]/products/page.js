@@ -16,6 +16,7 @@ export default async function ProductsPage({ params, searchParams }) {
   const limit = parseInt(resolvedSearchParams?.limit || '50')
   const search = resolvedSearchParams?.search || ''
   const brand = resolvedSearchParams?.brand || ''
+  const category = resolvedSearchParams?.category || ''
   const offset = (page - 1) * limit
 
   if (isStoreAdmin) {
@@ -71,6 +72,14 @@ export default async function ProductsPage({ params, searchParams }) {
       paramIndex++
     }
 
+    if (category && category.trim()) {
+      parts.push(
+        `EXISTS (SELECT 1 FROM unnest(string_to_array(p.categories, ',')) cat WHERE LOWER(TRIM(cat)) = LOWER($${paramIndex}))`
+      )
+      params.push(category.trim())
+      paramIndex++
+    }
+
     return { parts, params, nextIndex: paramIndex }
   }
 
@@ -84,10 +93,11 @@ export default async function ProductsPage({ params, searchParams }) {
 
   const productsResult = await db.query(
     `SELECT p.id, p.sku, p.name, p.price, p.regular_price, p.sale_price, p.stock_quantity,
-            p.status, p.created_at, p.reviewed_at, p.brand, ps.woo_product_id,
+            p.status, p.created_at, p.reviewed_at, p.brand, p.categories, p.images, ps.woo_product_id,
             ps.status AS store_status, ps.removed_at,
             COALESCE(v.variant_count, 0) as variant_count,
             v.min_cost_price,
+            v.first_variant_image,
             ven.name AS vendor_name
      FROM products p
      LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $1
@@ -96,7 +106,8 @@ export default async function ProductsPage({ params, searchParams }) {
      LEFT JOIN (
        SELECT product_id,
               COUNT(*) as variant_count,
-              MIN(COALESCE(regular_price, price)) as min_cost_price
+              MIN(COALESCE(regular_price, price)) as min_cost_price,
+              MIN(CASE WHEN image IS NOT NULL AND image != '' THEN image ELSE NULL END) as first_variant_image
        FROM product_variations
        GROUP BY product_id
      ) v ON v.product_id = p.id
@@ -135,6 +146,26 @@ export default async function ProductsPage({ params, searchParams }) {
   )
   const brands = brandsResult.rows.map((row) => row.brand)
 
+  const categoriesResult = await db.query(
+    `SELECT DISTINCT p.categories
+     FROM products p
+     ${vendorJoin}
+     WHERE p.categories IS NOT NULL AND p.categories != ''`,
+    isStoreAdmin ? [storeId] : []
+  )
+
+  const categoriesSet = new Set()
+  categoriesResult.rows.forEach((row) => {
+    if (row.categories) {
+      String(row.categories)
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean)
+        .forEach((c) => categoriesSet.add(c))
+    }
+  })
+  const categories = Array.from(categoriesSet).sort((a, b) => a.localeCompare(b))
+
   return (
     <div>
       <div className="mb-6">
@@ -167,6 +198,8 @@ export default async function ProductsPage({ params, searchParams }) {
         search={search}
         brand={brand}
         brands={brands}
+        category={category}
+        categories={categories}
         userRole={session.user.role}
         canApprove={!isStoreAdmin}
         canSync={isStoreAdmin}
