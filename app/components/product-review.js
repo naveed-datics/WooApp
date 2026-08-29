@@ -674,7 +674,8 @@ export default function ProductReview({
       )}
 
       <div className="bg-white shadow rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
               {showCheckboxColumn && (
@@ -716,7 +717,7 @@ export default function ProductReview({
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[240px] whitespace-nowrap">
                 Actions
               </th>
             </tr>
@@ -828,8 +829,8 @@ export default function ProductReview({
                       <td className="px-6 py-4 whitespace-nowrap">
                         {getStatusBadge(product.status)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex items-center gap-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium pr-8 min-w-[240px]">
+                        <div className="flex items-center gap-3 whitespace-nowrap">
                           {product.status === 'pending' && canApprove && (
                             <>
                               <button
@@ -856,7 +857,7 @@ export default function ProductReview({
                               <button
                                 onClick={() => handleStoreStatusChange(product.id, 'restore')}
                                 disabled={loading === product.id}
-                                className="text-indigo-600 hover:text-indigo-900 text-xs font-medium underline disabled:opacity-50"
+                                className="text-indigo-600 hover:text-indigo-900 text-xs font-medium underline disabled:opacity-50 whitespace-nowrap shrink-0"
                               >
                                 {loading === product.id ? 'Restoring...' : 'Restore to Store'}
                               </button>
@@ -865,13 +866,13 @@ export default function ProductReview({
                             <button
                               onClick={() => setRemovingProduct(product)}
                               disabled={loading === product.id}
-                              className="text-red-600 hover:text-red-900 text-xs font-medium disabled:opacity-50"
+                              className="text-red-600 hover:text-red-900 text-xs font-medium disabled:opacity-50 whitespace-nowrap shrink-0"
                             >
                               Remove from Store
                             </button>
                           )}
                           {isPluginStore && (
-                            <span className="text-xs text-gray-400">Pulled by plugin</span>
+                            <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">Pulled by plugin</span>
                           )}
                           {!isPluginStore && product.status === 'approved' && canSync && (
                             <button
@@ -960,6 +961,7 @@ export default function ProductReview({
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Pagination Info and Controls */}
