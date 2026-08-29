@@ -679,7 +679,7 @@ export default function ProductReview({
           <thead className="bg-gray-50">
             <tr>
               {showCheckboxColumn && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
                   <input
                     ref={selectAllRef}
                     type="checkbox"
@@ -690,34 +690,34 @@ export default function ProductReview({
                   />
                 </th>
               )}
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-14">
                 Image
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 SKU
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Name
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Brand
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Vendor
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Variants
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Cost
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Store price
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[240px] whitespace-nowrap">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[130px]">
                 Actions
               </th>
             </tr>
@@ -740,7 +740,7 @@ export default function ProductReview({
                   <React.Fragment key={product.id}>
                     <tr className={isExpanded ? 'bg-gray-50' : ''}>
                       {showCheckboxColumn && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 py-3.5 whitespace-nowrap">
                           <input
                             type="checkbox"
                             checked={selectedIds.has(product.id)}
@@ -750,7 +750,7 @@ export default function ProductReview({
                           />
                         </td>
                       )}
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-3 py-3.5 whitespace-nowrap">
                         <Link
                           href={`/admin/store/${storeId}/products/${product.id}`}
                           className="block w-12 h-12 rounded-md overflow-hidden bg-gray-100 border border-gray-200 shrink-0 hover:opacity-80 transition-opacity"
@@ -780,24 +780,24 @@ export default function ProductReview({
                           </div>
                         </Link>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      <td className="px-3 py-3.5 whitespace-nowrap text-sm font-medium text-gray-900">
                         {product.sku || '-'}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
+                      <td className="px-3 py-3.5 text-sm text-gray-900">
                         <Link
                           href={`/admin/store/${storeId}/products/${product.id}`}
-                          className="text-indigo-600 hover:text-indigo-800"
+                          className="text-indigo-600 hover:text-indigo-800 font-medium"
                         >
                           {product.name}
                         </Link>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-3 py-3.5 whitespace-nowrap text-sm text-gray-500">
                         {product.brand || '-'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-3 py-3.5 whitespace-nowrap text-sm text-gray-500">
                         {product.vendor_name || '-'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-3 py-3.5 whitespace-nowrap text-sm text-gray-500">
                         {variantCount > 0 ? (
                           <button
                             onClick={() => toggleVariants(product.id)}
@@ -817,47 +817,47 @@ export default function ProductReview({
                           <span className="text-gray-400">0</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-3 py-3.5 whitespace-nowrap text-sm text-gray-500">
                         {formatMoney(getProductCost(product))}
                         {variantCount > 0 ? (
                           <span className="block text-xs text-gray-400">from</span>
                         ) : null}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                      <td className="px-3 py-3.5 whitespace-nowrap text-sm text-gray-900 font-medium">
                         {formatMoney(applyPriceRule(getProductCost(product), priceRulePercent))}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 py-3.5 whitespace-nowrap">
                         {getStatusBadge(product.status)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium pr-8 min-w-[240px]">
-                        <div className="flex items-center gap-3 whitespace-nowrap">
+                      <td className="px-3 py-3.5 whitespace-nowrap text-sm font-medium">
+                        <div className="flex flex-col items-start gap-1">
                           {product.status === 'pending' && canApprove && (
-                            <>
+                            <div className="flex items-center gap-2">
                               <button
                                 onClick={() => handleStatusChange(product.id, 'approved')}
                                 disabled={loading === product.id}
-                                className="text-green-600 hover:text-green-900 disabled:opacity-50"
+                                className="text-green-600 hover:text-green-900 text-xs font-medium disabled:opacity-50"
                               >
                                 {loading === product.id ? 'Processing...' : 'Approve'}
                               </button>
                               <button
                                 onClick={() => handleStatusChange(product.id, 'rejected')}
                                 disabled={loading === product.id}
-                                className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                                className="text-red-600 hover:text-red-900 text-xs font-medium disabled:opacity-50"
                               >
                                 {loading === product.id ? 'Processing...' : 'Reject'}
                               </button>
-                            </>
+                            </div>
                           )}
                           {product.store_status === 'removed' ? (
-                            <div className="flex items-center gap-2">
-                              <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                            <div className="flex flex-col items-start gap-0.5">
+                              <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700 whitespace-nowrap">
                                 Removed from Store
                               </span>
                               <button
                                 onClick={() => handleStoreStatusChange(product.id, 'restore')}
                                 disabled={loading === product.id}
-                                className="text-indigo-600 hover:text-indigo-900 text-xs font-medium underline disabled:opacity-50 whitespace-nowrap shrink-0"
+                                className="text-indigo-600 hover:text-indigo-900 text-xs font-medium underline disabled:opacity-50 whitespace-nowrap"
                               >
                                 {loading === product.id ? 'Restoring...' : 'Restore to Store'}
                               </button>
@@ -866,19 +866,19 @@ export default function ProductReview({
                             <button
                               onClick={() => setRemovingProduct(product)}
                               disabled={loading === product.id}
-                              className="text-red-600 hover:text-red-900 text-xs font-medium disabled:opacity-50 whitespace-nowrap shrink-0"
+                              className="text-red-600 hover:text-red-900 text-xs font-medium disabled:opacity-50 whitespace-nowrap"
                             >
                               Remove from Store
                             </button>
                           )}
                           {isPluginStore && (
-                            <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">Pulled by plugin</span>
+                            <span className="text-xs text-gray-400 whitespace-nowrap">Pulled by plugin</span>
                           )}
                           {!isPluginStore && product.status === 'approved' && canSync && (
                             <button
                               onClick={() => handleSyncProduct(product.id)}
                               disabled={loading === product.id}
-                              className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50"
+                              className="text-indigo-600 hover:text-indigo-900 text-xs font-medium disabled:opacity-50 whitespace-nowrap"
                             >
                               {loading === product.id ? 'Syncing...' : 'Sync to Store'}
                             </button>
