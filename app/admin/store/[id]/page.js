@@ -46,8 +46,9 @@ export default async function StoreDashboardPage({ params }) {
       db.query(
         `SELECT COUNT(*) as count
          FROM products p
+         LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $1
          ${VENDOR_STORE_JOIN}
-         WHERE p.status = 'approved'`,
+         WHERE p.status = 'approved' AND (ps.status IS NULL OR ps.status != 'removed')`,
         [storeId]
       ),
       db.query('SELECT COUNT(*) as count FROM orders WHERE store_id = $1', [
