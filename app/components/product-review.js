@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -144,7 +144,7 @@ export default function ProductReview({
     setSuccess('')
 
     try {
-      const response = await fetch(/api/products/ + productId + /store-status, {
+      const response = await fetch(`/api/products/${productId}/store-status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ store_id: storeId, action }),
