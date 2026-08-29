@@ -849,27 +849,29 @@ export default function ProductReview({
                               </button>
                             </div>
                           )}
-                          {product.store_status === 'removed' ? (
-                            <div className="flex flex-col items-start gap-0.5">
-                              <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700 whitespace-nowrap">
-                                Removed from Store
-                              </span>
+                          {(product.status === 'approved' || product.status === 'synced') && (
+                            product.store_status === 'removed' ? (
+                              <div className="flex flex-col items-start gap-0.5">
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700 whitespace-nowrap">
+                                  Removed from Store
+                                </span>
+                                <button
+                                  onClick={() => handleStoreStatusChange(product.id, 'restore')}
+                                  disabled={loading === product.id}
+                                  className="text-indigo-600 hover:text-indigo-900 text-xs font-medium underline disabled:opacity-50 whitespace-nowrap"
+                                >
+                                  {loading === product.id ? 'Restoring...' : 'Restore to Store'}
+                                </button>
+                              </div>
+                            ) : (
                               <button
-                                onClick={() => handleStoreStatusChange(product.id, 'restore')}
+                                onClick={() => setRemovingProduct(product)}
                                 disabled={loading === product.id}
-                                className="text-indigo-600 hover:text-indigo-900 text-xs font-medium underline disabled:opacity-50 whitespace-nowrap"
+                                className="text-red-600 hover:text-red-900 text-xs font-medium disabled:opacity-50 whitespace-nowrap"
                               >
-                                {loading === product.id ? 'Restoring...' : 'Restore to Store'}
+                                Remove from Store
                               </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setRemovingProduct(product)}
-                              disabled={loading === product.id}
-                              className="text-red-600 hover:text-red-900 text-xs font-medium disabled:opacity-50 whitespace-nowrap"
-                            >
-                              Remove from Store
-                            </button>
+                            )
                           )}
                           {isPluginStore && (
                             <span className="text-xs text-gray-400 whitespace-nowrap">Pulled by plugin</span>
