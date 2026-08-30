@@ -146,10 +146,19 @@ export function validatePricingRules(rules, options = {}) {
     }
   }
 
+  // Check if highest rule has a finite upper bound without fallback
+  if (sortedRules.length > 0 && !openEndedFound) {
+    const lastRule = sortedRules[sortedRules.length - 1]
+    const lastMax = toNumber(lastRule.max_cost)
+    if (lastMax !== null) {
+      gaps.push({ from: lastMax, to: 'No Limit' })
+    }
+  }
+
   const hasGaps = gaps.length > 0
   if (hasGaps && options.requireContinuous && (options.fallbackMarkup === null || options.fallbackMarkup === undefined)) {
     errors.push(
-      `Price ranges have gaps (${gaps.map((g) => `£${g.from}–£${g.to}`).join(', ')}). A fallback markup % is required.`
+      `Price ranges have gaps or uncovered upper limits (${gaps.map((g) => `£${g.from}–${g.to === 'No Limit' ? 'No Limit' : `£${g.to}`}`).join(', ')}). Add an open-ended range or configure a fallback markup %.`
     )
   }
 

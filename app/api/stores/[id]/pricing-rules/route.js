@@ -128,14 +128,22 @@ export async function PUT(request, { params }) {
     }
 
     const store = storeRes.rows[0]
-    if (store.pricing_mode === 'range_rules' && validation.hasGaps && store.fallback_markup_percent === null) {
-      return NextResponse.json(
-        {
-          error: 'Cannot save range rules with gaps while store is in range_rules mode without a fallback markup % configured.',
-          details: validation.gaps.map((g) => `Gap: £${g.from} to £${g.to}`),
-        },
-        { status: 400 }
-      )
+    if (store.pricing_mode === 'range_rules') {
+      if (sanitizedRules.length === 0) {
+        return NextResponse.json(
+          { error: 'Cannot save 0 rules while store is in active range_rules mode.' },
+          { status: 400 }
+        )
+      }
+      if (validation.hasGaps && store.fallback_markup_percent === null) {
+        return NextResponse.json(
+          {
+            error: 'Cannot save range rules with gaps while store is in active range_rules mode without a fallback markup % configured.',
+            details: validation.gaps.map((g) => `Gap: £${g.from} to £${g.to}`),
+          },
+          { status: 400 }
+        )
+      }
     }
 
     // 2. Atomic Database Transaction
@@ -210,6 +218,15 @@ export async function POST(request, { params }) {
       }
     }
 
+    const storeRes = await db.query(
+      'SELECT pricing_mode, fallback_markup_percent FROM stores WHERE id = $1',
+      [storeId]
+    )
+    if (storeRes.rows.length === 0) {
+      return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+    }
+    const store = storeRes.rows[0]
+
     const body = await request.json().catch(() => ({}))
     const minCost = toNumber(body.min_cost)
     const maxCost = body.max_cost !== null && body.max_cost !== undefined && body.max_cost !== '' ? toNumber(body.max_cost) : null
@@ -236,7 +253,10 @@ export async function POST(request, { params }) {
       { min_cost: minCost, max_cost: maxCost, markup_percent: markupPercent, active: true },
     ]
 
-    const validation = validatePricingRules(combined)
+    const validation = validatePricingRules(combined, {
+      fallbackMarkup: store.fallback_markup_percent,
+      requireContinuous: store.pricing_mode === 'range_rules',
+    })
     if (!validation.valid) {
       return NextResponse.json({ error: 'Cannot add rule: range conflict detected', details: validation.errors }, { status: 400 })
     }

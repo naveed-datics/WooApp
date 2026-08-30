@@ -29,6 +29,46 @@ export async function DELETE(request, { params }) {
       }
     }
 
+    const storeRes = await db.query(
+      'SELECT pricing_mode, fallback_markup_percent FROM stores WHERE id = $1',
+      [storeId]
+    )
+    if (storeRes.rows.length === 0) {
+      return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+    }
+    const store = storeRes.rows[0]
+
+    // Active mode safety check
+    if (store.pricing_mode === 'range_rules') {
+      const remainingRes = await db.query(
+        'SELECT id, min_cost, max_cost, markup_percent, active FROM store_pricing_rules WHERE store_id = $1 AND id != $2',
+        [storeId, ruleId]
+      )
+      const remaining = remainingRes.rows
+
+      if (remaining.length === 0) {
+        return NextResponse.json(
+          { error: 'Cannot delete the only pricing rule while store is in active range_rules mode.' },
+          { status: 400 }
+        )
+      }
+
+      const validation = validatePricingRules(remaining, {
+        fallbackMarkup: store.fallback_markup_percent,
+        requireContinuous: true,
+      })
+
+      if (!validation.valid) {
+        return NextResponse.json(
+          {
+            error: 'Cannot delete rule: deletion would leave active store with uncovered pricing gaps without a fallback markup.',
+            details: validation.errors,
+          },
+          { status: 400 }
+        )
+      }
+    }
+
     const deleteRes = await db.query(
       'DELETE FROM store_pricing_rules WHERE id = $1 AND store_id = $2 RETURNING id',
       [ruleId, storeId]
@@ -67,6 +107,15 @@ export async function PUT(request, { params }) {
       }
     }
 
+    const storeRes = await db.query(
+      'SELECT pricing_mode, fallback_markup_percent FROM stores WHERE id = $1',
+      [storeId]
+    )
+    if (storeRes.rows.length === 0) {
+      return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+    }
+    const store = storeRes.rows[0]
+
     const body = await request.json().catch(() => ({}))
     const minCost = toNumber(body.min_cost)
     const maxCost = body.max_cost !== null && body.max_cost !== undefined && body.max_cost !== '' ? toNumber(body.max_cost) : null
@@ -94,7 +143,10 @@ export async function PUT(request, { params }) {
       { id: ruleId, min_cost: minCost, max_cost: maxCost, markup_percent: markupPercent, active },
     ]
 
-    const validation = validatePricingRules(proposedRules)
+    const validation = validatePricingRules(proposedRules, {
+      fallbackMarkup: store.fallback_markup_percent,
+      requireContinuous: store.pricing_mode === 'range_rules',
+    })
     if (!validation.valid) {
       return NextResponse.json({ error: 'Rule update conflicts with existing price ranges', details: validation.errors }, { status: 400 })
     }
