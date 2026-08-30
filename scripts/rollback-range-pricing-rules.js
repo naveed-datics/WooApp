@@ -23,6 +23,7 @@ async function run() {
     console.log('Beginning range pricing rules schema rollback...')
 
     // 1. Drop product_store_pricing table
+        await client.query('DROP TABLE IF EXISTS store_category_pricing_rules CASCADE;')
     await client.query('DROP TABLE IF EXISTS product_store_pricing CASCADE;')
 
     // 2. Drop store_pricing_rules table

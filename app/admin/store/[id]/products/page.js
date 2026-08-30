@@ -51,7 +51,7 @@ export default async function ProductsPage({ params, searchParams }) {
   const pricing = await getStorePricingContext(store)
   const vendorJoin = isStoreAdmin ? VENDOR_STORE_JOIN : ''
 
-  // Fetch active range rules
+    // Fetch active range rules
   let rangeRules = []
   try {
     const rulesRes = await db.query(
@@ -67,6 +67,25 @@ export default async function ProductsPage({ params, searchParams }) {
     }))
   } catch {
     rangeRules = []
+  }
+
+  // Fetch active category rules
+  let categoryRules = []
+  try {
+    const catRes = await db.query(
+      'SELECT id, store_id, category, markup_percent, priority, active FROM store_category_pricing_rules WHERE store_id = $1 AND active = true ORDER BY priority ASC, id ASC',
+      [storeId]
+    )
+    categoryRules = catRes.rows.map((r) => ({
+      id: r.id,
+      store_id: r.store_id,
+      category: r.category,
+      markup_percent: Number(r.markup_percent),
+      priority: Number(r.priority) || 0,
+      active: r.active,
+    }))
+  } catch {
+    categoryRules = []
   }
 
   function buildFilterParts(startIndex) {
@@ -259,6 +278,7 @@ export default async function ProductsPage({ params, searchParams }) {
         priceRulePercent={pricing.effective}
         storePricingContext={storePricingContext}
         rangeRules={rangeRules}
+        categoryRules={categoryRules}
         products={productsResult.rows}
         status={status}
         currentPage={page}

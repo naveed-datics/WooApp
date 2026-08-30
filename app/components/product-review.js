@@ -12,6 +12,7 @@ export default function ProductReview({
   priceRulePercent = null,
   storePricingContext = null,
   rangeRules = [],
+  categoryRules = [],
   products,
   status,
   currentPage,
@@ -836,7 +837,14 @@ export default function ProductReview({
                             fixed_price: product.fixed_price !== null ? Number(product.fixed_price) : null,
                           } : null
                           const context = storePricingContext || { price_rule_percent: priceRulePercent, pricing_mode: 'legacy_markup' }
-                          const resolved = resolveItemPrice(cost, context, rangeRules, overrideObj)
+                          const resolved = resolveItemPrice(
+                            cost,
+                            context,
+                            rangeRules,
+                            overrideObj,
+                            product.categories,
+                            categoryRules
+                          )
 
                           return (
                             <div>
@@ -848,6 +856,10 @@ export default function ProductReview({
                               ) : product.override_type === 'fixed_price' ? (
                                 <span className="block mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
                                   Fixed Override
+                                </span>
+                              ) : resolved.source === 'category_rule' ? (
+                                <span className="block mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-100 text-indigo-800">
+                                  Cat: {resolved.matchedCategory} (+{resolved.appliedMarkup}%)
                                 </span>
                               ) : (
                                 <span className="block text-[10px] text-gray-400 font-normal">

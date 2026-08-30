@@ -24,6 +24,15 @@ export default function StorePriceRuleSettings({
   const [activeEffective, setActiveEffective] = useState(initialEffective)
   const [isOverride, setIsOverride] = useState(Boolean(initialIsOverride))
 
+  // ── Category Pricing Rules state ──────────────────────────────────────────
+  const [catRules, setCatRules] = useState([])
+  const [availableCategories, setAvailableCategories] = useState([])
+  const [catLoading, setCatLoading] = useState(true)
+  const [catSaving, setCatSaving] = useState(false)
+  const [catError, setCatError] = useState('')
+  const [catSuccess, setCatSuccess] = useState('')
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatMarkup, setNewCatMarkup] = useState('')
   // ── UI / Draft state ───────────────────────────────────────────────────────
   const [selectedMode, setSelectedMode] = useState(initialPricingMode)
   const [useLegacyOverride, setUseLegacyOverride] = useState(Boolean(initialIsOverride))
@@ -164,6 +173,7 @@ export default function StorePriceRuleSettings({
           cost: Number(costVal),
           preview_mode: selectedMode,
           preview_rules: rules,
+          preview_category_rules: catRules,
           preview_fallback: fallbackValue === '' ? null : Number(fallbackValue),
         }),
       })

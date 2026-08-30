@@ -237,7 +237,9 @@ export default function ProductPriceOverrideCard({
             <div>
               <span className="text-gray-500 block">Pricing Source</span>
               <span className="font-medium text-gray-800 capitalize truncate block">
-                {currentSource.replace(/_/g, ' ')}
+                {currentSource === 'category_rule'
+                  ? `Category: ${previewData?.product?.matched_category || 'Matched'} (+${previewData?.product?.applied_markup}%)`
+                  : currentSource.replace(/_/g, ' ')}
               </span>
             </div>
             <div>
@@ -251,7 +253,7 @@ export default function ProductPriceOverrideCard({
           {/* Pricing Hierarchy Hint */}
           <div className="text-[11px] text-gray-500 bg-indigo-50/50 border border-indigo-100 rounded p-2.5 flex items-center justify-between">
             <span>
-              <strong>Resolution Order:</strong> 1. Product Fixed Price → 2. Product Custom Markup → 3. Store Tiered Rules → 4. Store Default Markup
+              <strong>Resolution Order:</strong> 1. Product Fixed Price → 2. Product Custom Markup → 3. Category Pricing Rule → 4. Store Price Ranges → 5. Store Fallback / Legacy Markup
             </span>
           </div>
 

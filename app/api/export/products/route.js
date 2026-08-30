@@ -19,9 +19,9 @@ function splitList(value) {
     .filter(Boolean)
 }
 
-function serializeVariation(row, storeContext, rangeRules, productOverride) {
+function serializeVariation(row, storeContext, rangeRules, productOverride, productCategories, categoryRules) {
   const cost = resolveCostPrice(row)
-  const calc = resolveItemPrice(cost, storeContext, rangeRules, productOverride)
+  const calc = resolveItemPrice(cost, storeContext, rangeRules, productOverride, productCategories, categoryRules)
   const sell = calc.sellingPrice
 
   return {
@@ -43,9 +43,9 @@ function serializeVariation(row, storeContext, rangeRules, productOverride) {
   }
 }
 
-function serializeProduct(row, variations, storeContext, rangeRules, productOverride) {
+function serializeProduct(row, variations, storeContext, rangeRules, productOverride, categoryRules) {
   const cost = resolveCostPrice(row)
-  const calc = resolveItemPrice(cost, storeContext, rangeRules, productOverride)
+  const calc = resolveItemPrice(cost, storeContext, rangeRules, productOverride, row.categories, categoryRules)
   const sell = calc.sellingPrice
 
   return {
@@ -73,7 +73,7 @@ function serializeProduct(row, variations, storeContext, rangeRules, productOver
     woo_product_id: row.woo_product_id,
     updated_at: row.updated_at,
     variations: variations.map((v) =>
-      serializeVariation(v, storeContext, rangeRules, productOverride)
+      serializeVariation(v, storeContext, rangeRules, productOverride, row.categories, categoryRules)
     ),
   }
 }
@@ -95,7 +95,7 @@ export async function GET(request) {
     const storeId = auth.store.id
 
     // 1. Load centralized pricing engine for the store (cached once per request)
-    const { storeContext, rangeRules } = await loadStorePricingEngine(db, storeId)
+    const { storeContext, rangeRules, categoryRules } = await loadStorePricingEngine(db, storeId)
 
     const { searchParams } = new URL(request.url)
     const limit = Math.min(
@@ -166,7 +166,8 @@ export async function GET(request) {
         variationsByProduct[row.id] || [],
         storeContext,
         rangeRules,
-        override
+        override,
+        categoryRules
       )
     })
 

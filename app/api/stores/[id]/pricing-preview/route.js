@@ -6,16 +6,23 @@ import {
   verifyAdminStoreAccess,
 } from '../../../../lib/role-guards'
 import { getStorePricingContext } from '../../../../lib/app-settings'
-import { resolveItemPrice, resolveCostPrice, toNumber, round2 } from '../../../../lib/pricing'
+import {
+  resolveItemPrice,
+  resolveCostPrice,
+  loadStorePricingEngine,
+  loadProductStoreOverrides,
+  toNumber,
+  round2,
+} from '../../../../lib/pricing'
 
 /**
  * POST /api/stores/[id]/pricing-preview
- * READ-ONLY live pricing calculator & impact preview endpoint.
+ * READ-ONLY live pricing calculator & impact preview endpoint with Category Rules support.
  *
  * Supports:
- * 1. Single cost calculation: { "cost": 12.50 }
+ * 1. Single cost calculation: { "cost": 12.50, "categories": "T-Shirts" }
  * 2. Product & variations calculation: { "product_id": 123 }
- * 3. Batch Catalog Impact Preview: { "preview_sample": true, "preview_rules": [...], "preview_fallback": 35.0 }
+ * 3. Batch Catalog Impact Preview: { "preview_sample": true, "preview_rules": [...], "preview_category_rules": [...] }
  */
 export async function POST(request, { params }) {
   try {
@@ -37,58 +44,36 @@ export async function POST(request, { params }) {
 
     const body = await request.json().catch(() => ({}))
 
-    // 1. Fetch Current Store Pricing Configuration
-    const storeRes = await db.query(
-      `SELECT id, name, pricing_mode, price_rule_percent, fallback_markup_percent
-       FROM stores WHERE id = $1`,
-      [storeId]
-    )
-
-    if (storeRes.rows.length === 0) {
-      return NextResponse.json({ error: 'Store not found' }, { status: 404 })
-    }
-
-    const store = storeRes.rows[0]
-    const pricingContext = await getStorePricingContext(store)
-    const activeStoreContext = {
-      pricing_mode: store.pricing_mode || 'legacy_markup',
-      price_rule_percent: pricingContext.override,
-      fallback_markup_percent: store.fallback_markup_percent ? Number(store.fallback_markup_percent) : null,
-      default_price_rule_percent: pricingContext.defaultPercent,
-      defaultPercent: pricingContext.defaultPercent,
-    }
-
-    // 2. Fetch Active Range Rules from DB
-    let savedRules = []
-    try {
-      const rulesRes = await db.query(
-        `SELECT id, min_cost, max_cost, markup_percent, active
-         FROM store_pricing_rules
-         WHERE store_id = $1 AND active = true
-         ORDER BY min_cost ASC`,
-        [storeId]
-      )
-      savedRules = rulesRes.rows.map((r) => ({
-        id: r.id,
-        min_cost: Number(r.min_cost),
-        max_cost: r.max_cost !== null ? Number(r.max_cost) : null,
-        markup_percent: Number(r.markup_percent),
-        active: r.active,
-      }))
-    } catch {
-      savedRules = []
-    }
+    // 1. Fetch Store Pricing Engine Context (cached)
+    const { storeContext, rangeRules: savedRangeRules, categoryRules: savedCategoryRules } =
+      await loadStorePricingEngine(db, storeId)
 
     // ── Case A: Ad-hoc Single Cost Calculation ───────────────────────────
     if (body.cost !== undefined && body.cost !== null) {
       const rawCost = toNumber(body.cost)
-      const rulesToUse = Array.isArray(body.preview_rules) ? body.preview_rules : savedRules
+      const rangeRulesToUse = Array.isArray(body.preview_rules) ? body.preview_rules : savedRangeRules
+      const categoryRulesToUse = Array.isArray(body.preview_category_rules)
+        ? body.preview_category_rules
+        : savedCategoryRules
+
       const contextToUse = {
-        ...activeStoreContext,
-        pricing_mode: body.preview_mode || activeStoreContext.pricing_mode,
-        fallback_markup_percent: body.preview_fallback !== undefined ? toNumber(body.preview_fallback) : activeStoreContext.fallback_markup_percent,
+        ...storeContext,
+        pricing_mode: body.preview_mode || storeContext.pricing_mode,
+        fallback_markup_percent:
+          body.preview_fallback !== undefined
+            ? toNumber(body.preview_fallback)
+            : storeContext.fallback_markup_percent,
       }
-      const result = resolveItemPrice(rawCost, contextToUse, rulesToUse, null)
+
+      const result = resolveItemPrice(
+        rawCost,
+        contextToUse,
+        rangeRulesToUse,
+        null,
+        body.categories || body.category || null,
+        categoryRulesToUse
+      )
+
       return NextResponse.json({
         store_id: storeId,
         pricing_mode: contextToUse.pricing_mode,
@@ -97,23 +82,31 @@ export async function POST(request, { params }) {
         source: result.source,
         applied_markup: result.appliedMarkup,
         matched_rule_id: result.matchedRuleId,
+        matched_category_rule_id: result.matchedCategoryRuleId || null,
+        matched_category: result.matchedCategory || null,
       })
     }
 
     // ── Case B: Batch Catalog Impact Preview (20 Representative Items) ───
     if (body.preview_sample === true) {
       const sampleLimit = Math.min(parseInt(body.limit, 10) || 20, 50)
-      const proposedRules = Array.isArray(body.preview_rules) ? body.preview_rules : savedRules
+      const proposedRangeRules = Array.isArray(body.preview_rules) ? body.preview_rules : savedRangeRules
+      const proposedCategoryRules = Array.isArray(body.preview_category_rules)
+        ? body.preview_category_rules
+        : savedCategoryRules
+
       const proposedContext = {
-        pricing_mode: 'range_rules',
-        fallback_markup_percent: body.preview_fallback !== undefined ? toNumber(body.preview_fallback) : activeStoreContext.fallback_markup_percent,
-        price_rule_percent: activeStoreContext.price_rule_percent,
-        defaultPercent: activeStoreContext.defaultPercent,
+        ...storeContext,
+        pricing_mode: body.preview_mode || 'range_rules',
+        fallback_markup_percent:
+          body.preview_fallback !== undefined
+            ? toNumber(body.preview_fallback)
+            : storeContext.fallback_markup_percent,
       }
 
-      // Fetch sample of products & variations associated with store
       const itemsRes = await db.query(
         `SELECT p.id as product_id, p.sku as product_sku, p.name as product_name,
+                p.categories as product_categories,
                 COALESCE(p.regular_price, p.price) as product_cost,
                 pv.id as variation_id, pv.sku as variation_sku,
                 COALESCE(pv.regular_price, pv.price) as variation_cost,
@@ -127,24 +120,8 @@ export async function POST(request, { params }) {
         [storeId, sampleLimit * 2]
       )
 
-      // Also load existing product overrides for this store
-      let overridesMap = new Map()
-      try {
-        const overridesRes = await db.query(
-          `SELECT product_id, override_type, custom_markup_percent, fixed_price
-           FROM product_store_pricing WHERE store_id = $1`,
-          [storeId]
-        )
-        for (const o of overridesRes.rows) {
-          overridesMap.set(o.product_id, {
-            override_type: o.override_type,
-            custom_markup_percent: o.custom_markup_percent !== null ? Number(o.custom_markup_percent) : null,
-            fixed_price: o.fixed_price !== null ? Number(o.fixed_price) : null,
-          })
-        }
-      } catch {
-        overridesMap = new Map()
-      }
+      const productIds = Array.from(new Set(itemsRes.rows.map((r) => r.product_id)))
+      const overridesMap = await loadProductStoreOverrides(db, storeId, productIds)
 
       const comparisonItems = []
       const seenSkus = new Set()
@@ -161,20 +138,36 @@ export async function POST(request, { params }) {
         const override = overridesMap.get(row.product_id) || null
 
         // 1. Current Active Price
-        const currentRes = resolveItemPrice(cost, activeStoreContext, savedRules, override)
+        const currentRes = resolveItemPrice(
+          cost,
+          storeContext,
+          savedRangeRules,
+          override,
+          row.product_categories,
+          savedCategoryRules
+        )
 
-        // 2. Proposed Range Price
-        const proposedRes = resolveItemPrice(cost, proposedContext, proposedRules, override)
+        // 2. Proposed Range/Category Price
+        const proposedRes = resolveItemPrice(
+          cost,
+          proposedContext,
+          proposedRangeRules,
+          override,
+          row.product_categories,
+          proposedCategoryRules
+        )
 
         const currentPrice = currentRes.sellingPrice
         const proposedPrice = proposedRes.sellingPrice
         const diffAmount = currentPrice !== null && proposedPrice !== null ? round2(proposedPrice - currentPrice) : 0
-        const diffPercent = currentPrice && currentPrice > 0 ? round2(((proposedPrice - currentPrice) / currentPrice) * 100) : 0
+        const diffPercent =
+          currentPrice && currentPrice > 0 ? round2(((proposedPrice - currentPrice) / currentPrice) * 100) : 0
 
         comparisonItems.push({
           product_id: row.product_id,
           name: row.product_name,
           sku,
+          categories: row.product_categories,
           is_variation: isVariation,
           variation_attrs: isVariation ? [row.color, row.size].filter(Boolean).join(' / ') : null,
           supplier_cost: cost,
@@ -183,6 +176,7 @@ export async function POST(request, { params }) {
           proposed_price: proposedPrice,
           proposed_source: proposedRes.source,
           applied_markup: proposedRes.appliedMarkup,
+          matched_category: proposedRes.matchedCategory || null,
           diff_amount: diffAmount,
           diff_percent: diffPercent,
         })
@@ -192,8 +186,8 @@ export async function POST(request, { params }) {
 
       return NextResponse.json({
         store_id: storeId,
-        current_pricing_mode: activeStoreContext.pricing_mode,
-        current_markup_percent: activeStoreContext.price_rule_percent,
+        current_pricing_mode: storeContext.pricing_mode,
+        current_markup_percent: storeContext.price_rule_percent,
         sample_count: comparisonItems.length,
         items: comparisonItems,
       })
@@ -202,11 +196,14 @@ export async function POST(request, { params }) {
     // ── Case C: Single Product & Variations Calculation ──────────────────
     const productId = parseInt(body.product_id, 10)
     if (!productId || Number.isNaN(productId)) {
-      return NextResponse.json({ error: 'Provide a numeric "cost", "product_id", or "preview_sample": true in the request body.' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Provide a numeric "cost", "product_id", or "preview_sample": true in the request body.' },
+        { status: 400 }
+      )
     }
 
     const prodRes = await db.query(
-      `SELECT id, sku, name, price, regular_price, sale_price
+      `SELECT id, sku, name, price, regular_price, sale_price, categories
        FROM products
        WHERE id = $1`,
       [productId]
@@ -217,29 +214,18 @@ export async function POST(request, { params }) {
     }
 
     const product = prodRes.rows[0]
-
-    let productOverride = null
-    try {
-      const overrideRes = await db.query(
-        `SELECT override_type, custom_markup_percent, fixed_price
-         FROM product_store_pricing
-         WHERE store_id = $1 AND product_id = $2 LIMIT 1`,
-        [storeId, productId]
-      )
-      if (overrideRes.rows.length > 0) {
-        const row = overrideRes.rows[0]
-        productOverride = {
-          override_type: row.override_type,
-          custom_markup_percent: row.custom_markup_percent !== null ? Number(row.custom_markup_percent) : null,
-          fixed_price: row.fixed_price !== null ? Number(row.fixed_price) : null,
-        }
-      }
-    } catch {
-      productOverride = null
-    }
+    const overridesMap = await loadProductStoreOverrides(db, storeId, [productId])
+    const productOverride = overridesMap.get(productId) || null
 
     const parentCost = resolveCostPrice(product)
-    const parentCalc = resolveItemPrice(parentCost, activeStoreContext, savedRules, productOverride)
+    const parentCalc = resolveItemPrice(
+      parentCost,
+      storeContext,
+      savedRangeRules,
+      productOverride,
+      product.categories,
+      savedCategoryRules
+    )
 
     const varRes = await db.query(
       `SELECT id, sku, price, regular_price, sale_price, size, color
@@ -251,7 +237,14 @@ export async function POST(request, { params }) {
 
     const variationsPreview = varRes.rows.map((v) => {
       const varCost = resolveCostPrice(v)
-      const varCalc = resolveItemPrice(varCost, activeStoreContext, savedRules, productOverride)
+      const varCalc = resolveItemPrice(
+        varCost,
+        storeContext,
+        savedRangeRules,
+        productOverride,
+        product.categories,
+        savedCategoryRules
+      )
       return {
         id: v.id,
         sku: v.sku,
@@ -262,22 +255,29 @@ export async function POST(request, { params }) {
         source: varCalc.source,
         applied_markup: varCalc.appliedMarkup,
         matched_rule_id: varCalc.matchedRuleId,
+        matched_category: varCalc.matchedCategory || null,
       }
     })
 
     return NextResponse.json({
       store_id: storeId,
-      pricing_mode: activeStoreContext.pricing_mode,
+      pricing_mode: storeContext.pricing_mode,
       product: {
         id: product.id,
         sku: product.sku,
         name: product.name,
+        categories: product.categories,
         supplier_cost: parentCost,
         selling_price: parentCalc.sellingPrice,
         source: parentCalc.source,
         applied_markup: parentCalc.appliedMarkup,
         matched_rule_id: parentCalc.matchedRuleId,
-        override: productOverride || { override_type: 'store_rules', custom_markup_percent: null, fixed_price: null },
+        matched_category: parentCalc.matchedCategory || null,
+        override: productOverride || {
+          override_type: 'store_rules',
+          custom_markup_percent: null,
+          fixed_price: null,
+        },
       },
       variations: variationsPreview,
     })

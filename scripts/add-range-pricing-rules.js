@@ -84,7 +84,27 @@ async function run() {
         ON product_store_pricing(store_id, product_id);
     `)
 
-    console.log('Range pricing migration completed successfully.')
+        // 4. Create store_category_pricing_rules table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS store_category_pricing_rules (
+        id SERIAL PRIMARY KEY,
+        store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+        category VARCHAR(255) NOT NULL,
+        markup_percent DECIMAL(6, 2) NOT NULL CHECK (markup_percent >= 0),
+        priority INTEGER NOT NULL DEFAULT 0,
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(store_id, category)
+      );
+    `)
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_store_cat_rules_lookup
+        ON store_category_pricing_rules(store_id, active, priority);
+    `)
+
+    console.log('Range and category pricing migration completed successfully.')
   } finally {
     client.release()
     await pool.end()

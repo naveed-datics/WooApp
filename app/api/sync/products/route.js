@@ -287,7 +287,7 @@ export async function POST(request) {
         if (!hasVariations) {
           const productOverride = productOverridesMap.get(product.id) || null
         const parentCost = resolveCostPrice(product)
-        const sellPrice = resolveItemPrice(parentCost, storeContext, rangeRules, productOverride).sellingPrice
+        const sellPrice = resolveItemPrice(parentCost, storeContext, rangeRules, productOverride, product.categories, categoryRules).sellingPrice
           wooProductData.regular_price = sellPrice !== null ? sellPrice.toString() : ''
           wooProductData.sale_price = product.sale_price?.toString() || undefined
           wooProductData.manage_stock = product.manage_stock || (product.stock_quantity !== null)
@@ -451,7 +451,7 @@ export async function POST(request) {
               }
 
               const varCost = resolveCostPrice(variation)
-              const sellPrice = resolveItemPrice(varCost, storeContext, rangeRules, productOverride).sellingPrice
+              const sellPrice = resolveItemPrice(varCost, storeContext, rangeRules, productOverride, product.categories, categoryRules).sellingPrice
               const wooVariationData = {
                 sku: variation.sku || undefined,
                 regular_price: sellPrice !== null ? sellPrice.toString() : '',
