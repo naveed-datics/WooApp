@@ -30,16 +30,8 @@ async function run() {
 
     // 3. Drop constraint and columns from stores table
     await client.query(`
-      DO $$
-      BEGIN
-        ALTER TABLE stores DROP CONSTRAINT IF EXISTS stores_pricing_mode_check;
-      EXCEPTION
-        WHEN OTHERS THEN NULL;
-      END $$;
-    `)
-
-    await client.query(`
       ALTER TABLE stores
+        DROP CONSTRAINT IF EXISTS stores_pricing_mode_check,
         DROP COLUMN IF EXISTS pricing_mode,
         DROP COLUMN IF EXISTS fallback_markup_percent;
     `)

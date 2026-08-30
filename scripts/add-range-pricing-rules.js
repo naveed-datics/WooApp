@@ -4,7 +4,7 @@
 // - store_pricing_rules table (normalized price bands)
 // - product_store_pricing table (per-product / per-store overrides)
 //
-// Safe to re-run: fully idempotent.
+// Safe to re-run: fully idempotent without swallowing unexpected DDL errors.
 // Run with: node scripts/add-range-pricing-rules.js
 //   or:     npm run migrate:range-pricing
 
@@ -30,15 +30,16 @@ async function run() {
         ADD COLUMN IF NOT EXISTS fallback_markup_percent DECIMAL(6, 2) DEFAULT NULL;
     `)
 
-    // Ensure pricing_mode check constraint exists
+    // Check pg_constraint explicitly before adding constraint
     await client.query(`
       DO $$
       BEGIN
-        ALTER TABLE stores DROP CONSTRAINT IF EXISTS stores_pricing_mode_check;
-        ALTER TABLE stores ADD CONSTRAINT stores_pricing_mode_check
-          CHECK (pricing_mode IN ('legacy_markup', 'range_rules'));
-      EXCEPTION
-        WHEN OTHERS THEN NULL;
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'stores_pricing_mode_check'
+        ) THEN
+          ALTER TABLE stores ADD CONSTRAINT stores_pricing_mode_check
+            CHECK (pricing_mode IN ('legacy_markup', 'range_rules'));
+        END IF;
       END $$;
     `)
 
